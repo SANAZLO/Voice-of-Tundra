@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vargan Classic Studio</title>
+    <style>
+        body { margin: 0; background: #0a0a0a; color: #e0d7c6; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
+        
+        h1 { font-weight: 300; letter-spacing: 5px; color: #8b4513; margin: 0; text-transform: uppercase; }
+        .hint { font-size: 11px; opacity: 0.5; margin-bottom: 30px; }
+
+        /* Варган из 1-го варианта */
+        #vargan-container { position: relative; width: 300px; height: 150px; cursor: pointer; }
+        .frame { position: absolute; width: 100%; height: 100%; border: 8px solid #555; border-radius: 50% 10% 10% 50% / 50% 50% 50% 50%; border-right: none; }
+        .tongue { position: absolute; top: 50%; left: 10%; width: 100%; height: 4px; background: #999; transform-origin: left center; }
+        .tip { position: absolute; right: -10px; top: -8px; width: 20px; height: 20px; background: #777; border-radius: 50%; }
+
+        /* Управление */
+        .controls { margin-top: 40px; display: flex; flex-direction: column; gap: 10px; width: 250px; }
+        .btn { background: #1a1a1a; color: #e0d7c6; border: 1px solid #333; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: bold; text-decoration: none; text-align: center; }
+        .btn.rec.active { border-color: #ff4444; color: #ff4444; }
+        .btn-download { border-color: #d4af37; color: #d4af37; margin-top: 5px; }
+        
+        .vibration { animation: shake 0.08s infinite alternate; }
+        @keyframes shake { from { transform: translateY(-50%) rotate(1.5deg); } to { transform: translateY(-50%) rotate(-1.5deg); } }
+    </style>
+</head>
+<body>
+
+    <h1>ВАРГАН</h1>
+    <div class="hint">Тяни вверх-вниз для игры</div>
+
+    <div id="vargan-container" onmousedown="triggerVargan(event)" ontouchstart="triggerVargan(event)">
+        <div class="frame"></div>
+        <div id="tongue" class="tongue"><div class="tip"></div></div>
+    </div>
+
+    <div class="controls">
+        <button id="recBtn" class="btn rec" onclick="toggleRecording()">Начать запись</button>
+        <button id="overdubBtn" class="btn" onclick="toggleOverdub()" style="display:none">Наложить слой (+)</button>
+        <button id="playBtn" class="btn" onclick="playFinal()" style="display:none">Прослушать итог</button>
+        <a id="downloadBtn" class="btn btn-download" style="display:none">Скачать трек (.webm)</a>
+    </div>
+
+<script>
+    let audioCtx, osc, filter, gain, dest;
+    let mediaRecorder, chunks = [], lastBlobUrl = null;
+    let isPlaying = false, isRecording = false;
+
+    function initAudio() {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        dest = audioCtx.createMediaStreamDestination();
+        
+        osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth'; 
+        osc.frequency.setValueAtTime(55, audioCtx.currentTime);
+
+        filter = audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.Q.value = 25;
+
+        gain = audioCtx.createGain();
+        gain.gain.value = 0;
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(audioCtx.destination);
+        gain.connect(dest);
+        osc.start();
+    }
+
+    function triggerVargan(e) {
+        if (!audioCtx) initAudio();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        
+        isPlaying = true;
+        document.getElementById('tongue').classList.add('vibration');
+        
+        gain.gain.cancelScheduledValues(audioCtx.currentTime);
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
+        
+        updateFilter(e);
+        setTimeout(() => document.getElementById('tongue').classList.remove('vibration'), 400);
+    }
+
+    function updateFilter(e) {
+        if (!filter) return;
+        const y = e.touches ? e.touches.clientY : e.clientY;
+        const percent = 1 - (y / window.innerHeight);
+        const freq = 150 + (Math.pow(percent, 2) * 4500);
+        filter.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
+    }
+
+    function toggleRecording() {
+        if (!audioCtx) initAudio();
+        const btn = document.getElementById('recBtn');
+
+        if (!isRecording) {
+            chunks = [];
+            mediaRecorder = new MediaRecorder(dest.stream);
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'audio/webm' });
+                lastBlobUrl = URL.createObjectURL(blob);
+                
+                document.getElementById('overdubBtn').style.display = 'block';
+                document.getElementById('playBtn').style.display = 'block';
+                const dl = document.getElementById('downloadBtn');
+                dl.style.display = 'block';
+                dl.href = lastBlobUrl;
+                dl.download = 'vargan_session.webm';
+            };
+            mediaRecorder.start();
+            btn.innerText = "Стоп";
+            btn.classList.add('active');
+            isRecording = true;
+        } else {
+            mediaRecorder.stop();
+            btn.innerText = "Записать слой";
+            btn.classList.remove('active');
+            isRecording = false;
+        }
+    }
+
+    function toggleOverdub() {
+        const playback = new Audio(lastBlobUrl);
+        const source = audioCtx.createMediaElementSource(playback);
+        source.connect(audioCtx.destination);
+        source.connect(dest);
+        playback.play();
+        toggleRecording();
+    }
+
+    function playFinal() {
+        if (lastBlobUrl) new Audio(lastBlobUrl).play();
+    }
+
+    window.addEventListener('mousemove', (e) => { if(isPlaying) updateFilter(e); });
+    window.addEventListener('touchmove', (e) => { if(isPlaying) updateFilter(e); e.preventDefault(); }, {passive: false});
+    window.addEventListener('mouseup', () => isPlaying = false);
+    window.addEventListener('touchend', () => isPlaying = false);
+
+</script>
+</body>
+</html>
