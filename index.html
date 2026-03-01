@@ -2,25 +2,78 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vargan Classic Studio</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Голос Тундры</title>
     <style>
-        body { margin: 0; background: #0a0a0a; color: #e0d7c6; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; touch-action: none; }
+        /* Блокируем прокрутку и лишние отступы */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         
-        h1 { font-weight: 300; letter-spacing: 5px; color: #8b4513; margin: 0; text-transform: uppercase; }
-        .hint { font-size: 11px; opacity: 0.5; margin-bottom: 30px; }
+        body { 
+            margin: 0; 
+            padding: 0;
+            background: #0a0a0a; 
+            color: #e0d7c6; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: space-between; /* Распределяем элементы по высоте */
+            height: 100vh; 
+            height: -webkit-fill-available; /* Для iOS */
+            overflow: hidden; 
+            touch-action: none; 
+        }
 
-        /* Варган из 1-го варианта */
-        #vargan-container { position: relative; width: 300px; height: 150px; cursor: pointer; }
+        html { height: -webkit-fill-available; }
+
+        .header { padding-top: 40px; text-align: center; flex-shrink: 0; }
+        h1 { font-weight: 300; letter-spacing: 5px; color: #8b4513; margin: 0; text-transform: uppercase; font-size: 24px; }
+        .hint { font-size: 11px; opacity: 0.5; margin-top: 5px; }
+
+        /* Игровая зона по центру */
+        #vargan-container { 
+            position: relative; 
+            width: 90vw; 
+            max-width: 320px;
+            height: 160px; 
+            cursor: pointer; 
+            flex-grow: 0;
+            margin: auto 0; /* Центрируем строго посередине свободного места */
+        }
+        
         .frame { position: absolute; width: 100%; height: 100%; border: 8px solid #555; border-radius: 50% 10% 10% 50% / 50% 50% 50% 50%; border-right: none; }
         .tongue { position: absolute; top: 50%; left: 10%; width: 100%; height: 4px; background: #999; transform-origin: left center; }
         .tip { position: absolute; right: -10px; top: -8px; width: 20px; height: 20px; background: #777; border-radius: 50%; }
 
-        /* Управление */
-        .controls { margin-top: 40px; display: flex; flex-direction: column; gap: 10px; width: 250px; }
-        .btn { background: #1a1a1a; color: #e0d7c6; border: 1px solid #333; padding: 12px; border-radius: 5px; cursor: pointer; font-size: 13px; font-weight: bold; text-decoration: none; text-align: center; }
-        .btn.rec.active { border-color: #ff4444; color: #ff4444; }
-        .btn-download { border-color: #d4af37; color: #d4af37; margin-top: 5px; }
+        /* Нижняя панель управления */
+        .controls { 
+            width: 100%; 
+            max-width: 320px;
+            padding: 20px;
+            padding-bottom: calc(20px + env(safe-area-inset-bottom)); /* Учет челки/полоски внизу на новых смартфонах */
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+            flex-shrink: 0;
+        }
+
+        .btn { 
+            background: #1a1a1a; 
+            color: #e0d7c6; 
+            border: 1px solid #333; 
+            padding: 16px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            font-size: 14px; 
+            font-weight: bold; 
+            text-decoration: none; 
+            text-align: center;
+            transition: background 0.2s;
+        }
+        
+        .btn:active { background: #333; }
+        .btn.rec.active { border-color: #ff4444; color: #ff4444; background: rgba(255, 0, 0, 0.1); }
+        .btn-download { border-color: #d4af37; color: #d4af37; }
         
         .vibration { animation: shake 0.08s infinite alternate; }
         @keyframes shake { from { transform: translateY(-50%) rotate(1.5deg); } to { transform: translateY(-50%) rotate(-1.5deg); } }
@@ -28,8 +81,10 @@
 </head>
 <body>
 
-    <h1>ВАРГАН</h1>
-    <div class="hint">Тяни вверх-вниз для игры</div>
+    <div class="header">
+        <h1>ВАРГАН</h1>
+        <div class="hint">Води пальцем вверх-вниз по экрану</div>
+    </div>
 
     <div id="vargan-container" onmousedown="triggerVargan(event)" ontouchstart="triggerVargan(event)">
         <div class="frame"></div>
@@ -88,9 +143,10 @@
 
     function updateFilter(e) {
         if (!filter) return;
-        const y = e.touches ? e.touches.clientY : e.clientY;
-        const percent = 1 - (y / window.innerHeight);
-        const freq = 150 + (Math.pow(percent, 2) * 4500);
+        const touchY = e.touches ? e.touches[0].clientY : e.clientY;
+        const percent = 1 - (touchY / window.innerHeight);
+        // Адаптивная формула для обертонов
+        const freq = 150 + (Math.pow(percent, 2) * 5000);
         filter.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
     }
 
@@ -105,21 +161,20 @@
             mediaRecorder.onstop = () => {
                 const blob = new Blob(chunks, { type: 'audio/webm' });
                 lastBlobUrl = URL.createObjectURL(blob);
-                
                 document.getElementById('overdubBtn').style.display = 'block';
                 document.getElementById('playBtn').style.display = 'block';
                 const dl = document.getElementById('downloadBtn');
                 dl.style.display = 'block';
                 dl.href = lastBlobUrl;
-                dl.download = 'vargan_session.webm';
+                dl.download = 'vargan_tundra.webm';
             };
             mediaRecorder.start();
-            btn.innerText = "Стоп";
+            btn.innerText = "СТОП";
             btn.classList.add('active');
             isRecording = true;
         } else {
             mediaRecorder.stop();
-            btn.innerText = "Записать слой";
+            btn.innerText = "ЗАПИСАТЬ СЛОЙ";
             btn.classList.remove('active');
             isRecording = false;
         }
@@ -138,8 +193,13 @@
         if (lastBlobUrl) new Audio(lastBlobUrl).play();
     }
 
+    // Слушатели событий с блокировкой скролла
     window.addEventListener('mousemove', (e) => { if(isPlaying) updateFilter(e); });
-    window.addEventListener('touchmove', (e) => { if(isPlaying) updateFilter(e); e.preventDefault(); }, {passive: false});
+    window.addEventListener('touchmove', (e) => { 
+        if(isPlaying) updateFilter(e); 
+        e.preventDefault(); 
+    }, { passive: false });
+    
     window.addEventListener('mouseup', () => isPlaying = false);
     window.addEventListener('touchend', () => isPlaying = false);
 
