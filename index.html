@@ -5,55 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Голос Тундры</title>
     <style>
-        /* Блокируем прокрутку и лишние отступы */
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        /* Полная блокировка прокрутки и лишних движений */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: none; }
         
-        body { 
-            margin: 0; 
+        html, body { 
+            position: fixed; /* Фиксируем экран, чтобы не дергался */
+            width: 100%;
+            height: 100%;
+            margin: 0;
             padding: 0;
-            background: #0a0a0a; 
-            color: #e0d7c6; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: space-between; /* Распределяем элементы по высоте */
-            height: 100vh; 
-            height: -webkit-fill-available; /* Для iOS */
-            overflow: hidden; 
-            touch-action: none; 
+            overflow: hidden;
+            background: #0a0a0a;
+            color: #e0d7c6;
+            font-family: sans-serif;
         }
 
-        html { height: -webkit-fill-available; }
+        /* Главный контейнер на весь экран */
+        .app-wrapper {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between; /* Раскидываем верх и низ */
+            height: 100%;
+            width: 100%;
+            padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom) 20px;
+        }
 
-        .header { padding-top: 40px; text-align: center; flex-shrink: 0; }
-        h1 { font-weight: 300; letter-spacing: 5px; color: #8b4513; margin: 0; text-transform: uppercase; font-size: 24px; }
-        .hint { font-size: 11px; opacity: 0.5; margin-top: 5px; }
+        .header { 
+            text-align: center; 
+            padding: 15px 0;
+            flex-shrink: 0; 
+        }
 
-        /* Игровая зона по центру */
+        h1 { font-weight: 300; letter-spacing: 4px; color: #8b4513; margin: 0; font-size: clamp(18px, 5vw, 24px); }
+        .hint { font-size: 10px; opacity: 0.5; margin-top: 5px; }
+
+        /* Центр с инструментом - он будет сжиматься, если экран маленький */
+        .play-area {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 0; /* Важно для flex-сжатия */
+        }
+
         #vargan-container { 
             position: relative; 
-            width: 90vw; 
-            max-width: 320px;
-            height: 160px; 
-            cursor: pointer; 
-            flex-grow: 0;
-            margin: auto 0; /* Центрируем строго посередине свободного места */
+            width: 100%;
+            max-width: 280px;
+            aspect-ratio: 2 / 1; /* Сохраняем пропорции */
+            cursor: pointer;
         }
         
-        .frame { position: absolute; width: 100%; height: 100%; border: 8px solid #555; border-radius: 50% 10% 10% 50% / 50% 50% 50% 50%; border-right: none; }
-        .tongue { position: absolute; top: 50%; left: 10%; width: 100%; height: 4px; background: #999; transform-origin: left center; }
-        .tip { position: absolute; right: -10px; top: -8px; width: 20px; height: 20px; background: #777; border-radius: 50%; }
+        .frame { position: absolute; inset: 0; border: 6px solid #555; border-radius: 60% 15% 15% 60% / 50% 50% 50% 50%; border-right: none; }
+        .tongue { position: absolute; top: 50%; left: 10%; width: 100%; height: 3px; background: #888; transform-origin: left center; }
+        .tip { position: absolute; right: -8px; top: -8px; width: 16px; height: 16px; background: #666; border-radius: 50%; }
 
-        /* Нижняя панель управления */
+        /* Нижние кнопки */
         .controls { 
-            width: 100%; 
-            max-width: 320px;
-            padding: 20px;
-            padding-bottom: calc(20px + env(safe-area-inset-bottom)); /* Учет челки/полоски внизу на новых смартфонах */
-            display: flex; 
-            flex-direction: column; 
-            gap: 10px; 
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-bottom: 15px;
             flex-shrink: 0;
         }
 
@@ -61,14 +73,13 @@
             background: #1a1a1a; 
             color: #e0d7c6; 
             border: 1px solid #333; 
-            padding: 16px; 
-            border-radius: 12px; 
-            cursor: pointer; 
-            font-size: 14px; 
+            padding: 14px; 
+            border-radius: 10px; 
+            font-size: 13px; 
             font-weight: bold; 
             text-decoration: none; 
             text-align: center;
-            transition: background 0.2s;
+            width: 100%;
         }
         
         .btn:active { background: #333; }
@@ -81,43 +92,42 @@
 </head>
 <body>
 
+<div class="app-wrapper">
     <div class="header">
-        <h1>ВАРГАН</h1>
-        <div class="hint">Води пальцем вверх-вниз по экрану</div>
+        <h1>ГОЛОС ТУНДРЫ</h1>
+        <div class="hint">Води пальцем по вертикали</div>
     </div>
 
-    <div id="vargan-container" onmousedown="triggerVargan(event)" ontouchstart="triggerVargan(event)">
-        <div class="frame"></div>
-        <div id="tongue" class="tongue"><div class="tip"></div></div>
+    <div class="play-area">
+        <div id="vargan-container" onmousedown="triggerVargan(event)" ontouchstart="triggerVargan(event)">
+            <div class="frame"></div>
+            <div id="tongue" class="tongue"><div class="tip"></div></div>
+        </div>
     </div>
 
     <div class="controls">
         <button id="recBtn" class="btn rec" onclick="toggleRecording()">Начать запись</button>
         <button id="overdubBtn" class="btn" onclick="toggleOverdub()" style="display:none">Наложить слой (+)</button>
-        <button id="playBtn" class="btn" onclick="playFinal()" style="display:none">Прослушать итог</button>
-        <a id="downloadBtn" class="btn btn-download" style="display:none">Скачать трек (.webm)</a>
+        <button id="playBtn" class="btn" onclick="playFinal()" style="display:none">Прослушать</button>
+        <a id="downloadBtn" class="btn btn-download" style="display:none">Скачать (.webm)</a>
     </div>
+</div>
 
 <script>
     let audioCtx, osc, filter, gain, dest;
-    let mediaRecorder, chunks = [], lastBlobUrl = null;
-    let isPlaying = false, isRecording = false;
+    let mediaRecorder, chunks = [], lastBlobUrl = null, isPlaying = false, isRecording = false;
 
     function initAudio() {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         dest = audioCtx.createMediaStreamDestination();
-        
         osc = audioCtx.createOscillator();
         osc.type = 'sawtooth'; 
         osc.frequency.setValueAtTime(55, audioCtx.currentTime);
-
         filter = audioCtx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.Q.value = 25;
-
         gain = audioCtx.createGain();
         gain.gain.value = 0;
-
         osc.connect(filter);
         filter.connect(gain);
         gain.connect(audioCtx.destination);
@@ -128,15 +138,12 @@
     function triggerVargan(e) {
         if (!audioCtx) initAudio();
         if (audioCtx.state === 'suspended') audioCtx.resume();
-        
         isPlaying = true;
         document.getElementById('tongue').classList.add('vibration');
-        
         gain.gain.cancelScheduledValues(audioCtx.currentTime);
         gain.gain.setValueAtTime(0, audioCtx.currentTime);
         gain.gain.linearRampToValueAtTime(0.7, audioCtx.currentTime + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
-        
         updateFilter(e);
         setTimeout(() => document.getElementById('tongue').classList.remove('vibration'), 400);
     }
@@ -145,7 +152,6 @@
         if (!filter) return;
         const touchY = e.touches ? e.touches[0].clientY : e.clientY;
         const percent = 1 - (touchY / window.innerHeight);
-        // Адаптивная формула для обертонов
         const freq = 150 + (Math.pow(percent, 2) * 5000);
         filter.frequency.setTargetAtTime(freq, audioCtx.currentTime, 0.05);
     }
@@ -153,29 +159,23 @@
     function toggleRecording() {
         if (!audioCtx) initAudio();
         const btn = document.getElementById('recBtn');
-
         if (!isRecording) {
             chunks = [];
             mediaRecorder = new MediaRecorder(dest.stream);
             mediaRecorder.ondataavailable = e => chunks.push(e.data);
             mediaRecorder.onstop = () => {
-                const blob = new Blob(chunks, { type: 'audio/webm' });
-                lastBlobUrl = URL.createObjectURL(blob);
+                lastBlobUrl = URL.createObjectURL(new Blob(chunks, { type: 'audio/webm' }));
                 document.getElementById('overdubBtn').style.display = 'block';
                 document.getElementById('playBtn').style.display = 'block';
                 const dl = document.getElementById('downloadBtn');
-                dl.style.display = 'block';
-                dl.href = lastBlobUrl;
-                dl.download = 'vargan_tundra.webm';
+                dl.style.display = 'block'; dl.href = lastBlobUrl; dl.download = 'tundra_music.webm';
             };
             mediaRecorder.start();
-            btn.innerText = "СТОП";
-            btn.classList.add('active');
+            btn.innerText = "СТОП"; btn.classList.add('active');
             isRecording = true;
         } else {
             mediaRecorder.stop();
-            btn.innerText = "ЗАПИСАТЬ СЛОЙ";
-            btn.classList.remove('active');
+            btn.innerText = "ЗАПИСАТЬ СЛОЙ"; btn.classList.remove('active');
             isRecording = false;
         }
     }
@@ -183,26 +183,16 @@
     function toggleOverdub() {
         const playback = new Audio(lastBlobUrl);
         const source = audioCtx.createMediaElementSource(playback);
-        source.connect(audioCtx.destination);
-        source.connect(dest);
-        playback.play();
-        toggleRecording();
+        source.connect(audioCtx.destination); source.connect(dest);
+        playback.play(); toggleRecording();
     }
 
-    function playFinal() {
-        if (lastBlobUrl) new Audio(lastBlobUrl).play();
-    }
+    function playFinal() { if (lastBlobUrl) new Audio(lastBlobUrl).play(); }
 
-    // Слушатели событий с блокировкой скролла
     window.addEventListener('mousemove', (e) => { if(isPlaying) updateFilter(e); });
-    window.addEventListener('touchmove', (e) => { 
-        if(isPlaying) updateFilter(e); 
-        e.preventDefault(); 
-    }, { passive: false });
-    
+    window.addEventListener('touchmove', (e) => { if(isPlaying) updateFilter(e); }, { passive: false });
     window.addEventListener('mouseup', () => isPlaying = false);
     window.addEventListener('touchend', () => isPlaying = false);
-
 </script>
 </body>
 </html>
