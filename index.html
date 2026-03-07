@@ -418,6 +418,9 @@ function initWorld(){
   bird = {x:W*0.22, y:H/2, v:0, wing:0};
   pipes=[];trails=[];particles=[];
   score=0; frame=0; combo=0; comboTimer=0; level=1; lastLevelScore=0;
+  biome=0; prevBiome=0; biomeAlpha=1; biomeAnimals=[];
+  initWeather();
+  spawnAnimals();
   lightFlash=0; tapBlink=0; bonuses=[]; activeShield=0; activeGhost=0; activeGun=0; activeSlow=0; shakeDur=0; shakeAmp=0; unlockFlash=0; coins=[]; sessionCoins=0; sessionBonusCount=0;
 
   document.getElementById('hud-score').textContent = '0';
@@ -584,9 +587,9 @@ function getDifficulty(){
 // ══════════════════════════════════════════
 function updateGame(){
   const bdef = BIRDS[birdIdx];
-  bird.v += GRAV * getBirdGravM(bdef.id);
-  bird.y += bird.v;
-  bird.wing += .15;
+  bird.v += GRAV * getBirdGravM(bdef.id) * DT;
+  bird.y += bird.v * DT;
+  bird.wing += .15 * DT;
 
   const diff = getDifficulty();
 
@@ -599,21 +602,22 @@ function updateGame(){
     pipes.push({x:W+10, w:diff.pw, h:H-th-diff.gap,  top:false});
   }
 
-  if(comboTimer>0) comboTimer--;
+  if(comboTimer>0) comboTimer-=DT;
   else if(combo>0){ combo=0; updateComboUI(); }
-  if(activeShield>0) activeShield--;
-  if(activeGhost>0)  activeGhost--;
-  if(activeGun>0)    activeGun--;
-  if(activeSlow>0)   activeSlow--;
-  if(shakeDur>0)     shakeDur--;
+  if(activeShield>0) activeShield-=DT;
+  if(activeGhost>0)  activeGhost-=DT;
+  if(activeGun>0)    activeGun-=DT;
+  if(activeSlow>0)   activeSlow-=DT;
+  if(shakeDur>0)     shakeDur-=DT;
   updateBonuses();
   updateCoins();
+  updateAnimals();
 
   const br = Math.min(W,H)/520*9 * getBirdHitM(BIRDS[birdIdx].id);
 
   for(let i=pipes.length-1; i>=0; i--){
     const p = pipes[i];
-    p.x -= diff.spd;
+    p.x -= diff.spd * DT;
 
     const py = p.top ? 0 : H-p.h;
     // Gun — уничтожаем трубу при касании
@@ -664,6 +668,7 @@ function updateGame(){
     if(!p.passed && p.top && p.x+p.w < bird.x){
       p.passed=true; score++;
       combo++; comboTimer=110;
+      updateBiome();
       document.getElementById('hud-score').textContent = score;
       updateComboUI();
       spawnPts();
@@ -937,14 +942,560 @@ function esc(s){
 // ══════════════════════════════════════════
 function lp3(a,b,t){ return a.map((v,i)=>Math.round(v+(b[i]-v)*Math.max(0,Math.min(1,t)))); }
 
+
+// ══════════════════════════════════════════
+// ПОГОДА
+// ══════════════════════════════════════════
+const WEATHER_TYPES = ['clear','rain','storm','wind'];
+let weather       = 'clear';
+let weatherTimer  = 0;    // кадров до смены
+let weatherAlpha  = 0;    // плавный переход 0→1
+let rainDrops     = [];
+let windParticles = [];
+let lightningTimer = 0;   // кадров до следующей молнии
+let lightningFlash = 0;   // яркость вспышки молнии
+let lightningBolts = [];  // [{x1,y1,x2,y2,alpha,segs:[]}]
+
+function initWeather(){
+  rainDrops = [];
+  windParticles = [];
+  lightningBolts = [];
+  lightningTimer = 0;
+  lightningFlash = 0;
+  weather = 'clear';
+  weatherAlpha = 0;
+  // Первая смена погоды через 8-15 секунд (480-900 кадров)
+  weatherTimer = 480 + Math.random()*420;
+}
+
+function updateWeather(){
+  weatherTimer -= DT;
+  if(weatherTimer <= 0) switchWeather();
+
+  // Плавный переход
+  if(weather !== 'clear') weatherAlpha = Math.min(1, weatherAlpha + 0.008*DT);
+
+  const isArctic = getBiome()===3;
+
+  if(isArctic){
+    // Арктика — только снег (используем rainDrops с флагом snow:true)
+    if(weather==='rain'||weather==='storm'||Math.random()<0.015*DT){
+      for(let i=0;i<3;i++) spawnSnow();
+    }
+  } else if(weather === 'rain' || weather === 'storm'){
+    // Спавн капель дождя
+    const intensity = weather==='storm' ? 8 : 4;
+    for(let i=0;i<intensity;i++){
+      rainDrops.push({
+        x: Math.random()*W*1.3 - W*0.15,
+        y: -10,
+        vx: weather==='storm' ? -2.5 : -0.5,
+        vy: 8 + Math.random()*6,
+        len: 8 + Math.random()*12,
+        alpha: 0.3 + Math.random()*0.4,
+        snow: false
+      });
+    }
+    // Молнии при шторме (не в арктике)
+    if(weather==='storm'){
+      lightningTimer -= DT;
+      if(lightningTimer <= 0){
+        spawnLightning();
+        lightningTimer = 90 + Math.random()*180;
+      }
+    }
+  }
+
+  if(weather === 'wind'){
+    // Частицы ветра
+    if(Math.random() < 0.3*DT){
+      windParticles.push({
+        x: W + 20,
+        y: Math.random()*H,
+        vx: -(4 + Math.random()*3),
+        vy: (Math.random()-0.5)*1.5,
+        len: 20 + Math.random()*40,
+        alpha: 0.1 + Math.random()*0.25,
+        life: 1
+      });
+    }
+  }
+
+  // Обновляем капли
+  for(let i=rainDrops.length-1;i>=0;i--){
+    const d=rainDrops[i];
+    d.x+=d.vx*DT; d.y+=d.vy*DT;
+    if(d.y>H+20||d.x<-20) rainDrops.splice(i,1);
+  }
+  // Обновляем ветер
+  for(let i=windParticles.length-1;i>=0;i--){
+    const p=windParticles[i];
+    p.x+=p.vx*DT; p.y+=p.vy*DT;
+    p.life-=0.012*DT;
+    if(p.x<-100||p.life<=0) windParticles.splice(i,1);
+  }
+  // Молния затухает
+  if(lightningFlash>0) lightningFlash = Math.max(0,lightningFlash-0.08*DT);
+  for(let i=lightningBolts.length-1;i>=0;i--){
+    lightningBolts[i].alpha -= 0.04*DT;
+    if(lightningBolts[i].alpha<=0) lightningBolts.splice(i,1);
+  }
+}
+
+function switchWeather(){
+  const prev = weather;
+  // Вероятности: 50% ясно, 20% дождь, 15% шторм, 15% ветер
+  const r = Math.random();
+  if(r<0.50)      weather='clear';
+  else if(r<0.70) weather='rain';
+  else if(r<0.85) weather='storm';
+  else            weather='wind';
+
+  if(weather==='clear') weatherAlpha=0;
+  weatherTimer = (weather==='clear' ? 600+Math.random()*600 : 300+Math.random()*400);
+
+  // Чистим при смене
+  if(weather==='clear'||weather==='wind'){ rainDrops=[]; }
+  if(weather!=='storm'){ lightningBolts=[]; lightningFlash=0; }
+  if(weather!=='wind')  windParticles=[];
+}
+
+function spawnLightning(){
+  lightningFlash = 1.0;
+  lightFlash = 8; // вспышка неба из drawSky
+  // Генерируем зигзаг молнии
+  const x = W*0.2 + Math.random()*W*0.6;
+  let segs = [];
+  let cx2=x, cy=0;
+  while(cy < H*0.75){
+    const nx = cx2 + (Math.random()-0.5)*80;
+    const ny = cy + 30 + Math.random()*40;
+    segs.push({x1:cx2,y1:cy,x2:nx,y2:ny});
+    // Ветки
+    if(Math.random()<0.4){
+      segs.push({x1:cx2,y1:cy,x2:cx2+(Math.random()-0.5)*60,y2:cy+20+Math.random()*30,branch:true});
+    }
+    cx2=nx; cy=ny;
+  }
+  lightningBolts.push({segs, alpha:1.0});
+}
+
+function drawWeather(){
+  if(weather==='clear'&&weatherAlpha<=0&&lightningBolts.length===0&&rainDrops.length===0&&windParticles.length===0) return;
+
+  // Молния — рисуем первой (под дождём)
+  lightningBolts.forEach(bolt=>{
+    CX.save();
+    bolt.segs.forEach(seg=>{
+      const lw = seg.branch ? 1.5 : 3;
+      CX.strokeStyle=`rgba(200,220,255,${bolt.alpha*(seg.branch?0.5:1)})`;
+      CX.lineWidth=lw;
+      CX.shadowBlur=seg.branch?8:20; CX.shadowColor='rgba(150,180,255,0.9)';
+      CX.beginPath(); CX.moveTo(seg.x1,seg.y1); CX.lineTo(seg.x2,seg.y2); CX.stroke();
+    });
+    CX.shadowBlur=0;
+    CX.restore();
+  });
+
+  // Вспышка молнии — белеет небо (уже есть lightFlash, дополнительно)
+  if(lightningFlash>0){
+    CX.save();
+    CX.fillStyle=`rgba(200,215,255,${lightningFlash*0.18})`;
+    CX.fillRect(0,0,W,H);
+    CX.restore();
+  }
+
+  // Дождь / снег
+  if(rainDrops.length>0){
+    CX.save();
+    rainDrops.forEach(d=>{
+      if(d.snow){
+        // Снежинка — белый кружок
+        CX.globalAlpha=d.alpha*(getBiome()===3?0.85:weatherAlpha);
+        CX.fillStyle='rgba(220,235,255,0.9)';
+        CX.beginPath(); CX.arc(d.x,d.y,2+d.len*0.2,0,Math.PI*2); CX.fill();
+      } else {
+        CX.globalAlpha=1;
+        CX.strokeStyle=`rgba(174,214,241,${d.alpha*weatherAlpha})`;
+        CX.lineWidth=1;
+        CX.beginPath();
+        CX.moveTo(d.x,d.y);
+        CX.lineTo(d.x+d.vx*d.len/d.vy, d.y+d.len);
+        CX.stroke();
+      }
+    });
+    CX.globalAlpha=1;
+    CX.restore();
+  }
+
+  // Ветер — белые черточки
+  if(windParticles.length>0){
+    CX.save();
+    windParticles.forEach(p=>{
+      CX.strokeStyle=`rgba(255,255,255,${p.alpha*p.life*weatherAlpha})`;
+      CX.lineWidth=1;
+      CX.beginPath(); CX.moveTo(p.x,p.y); CX.lineTo(p.x+p.len,p.y+p.vy*3); CX.stroke();
+    });
+    CX.restore();
+  }
+
+  // Тёмная туча-вуаль при шторме
+  if((weather==='rain'||weather==='storm')&&weatherAlpha>0){
+    const darkness = weather==='storm' ? 0.35 : 0.15;
+    CX.fillStyle=`rgba(10,15,30,${darkness*weatherAlpha})`;
+    CX.fillRect(0,0,W,H);
+  }
+}
+
+
+// ══════════════════════════════════════════
+// БИОМЫ
+// 0=горы, 1=пустыня, 2=море, 3=арктика
+// ══════════════════════════════════════════
+const BIOME_NAMES = ['горы','пустыня','море','арктика'];
+const BIOME_PIPES = 45; // смена каждые N труб
+let biome = 0;
+let biomeAlpha = 1.0; // 1=текущий биом полностью виден
+let prevBiome = 0;
+let biomeAnimals = []; // {type, x, y, vx, phase, flip}
+
+function getBiome(){
+  return Math.floor(score / BIOME_PIPES) % 4;
+}
+function getBiomeBlend(){
+  // 0..1 насколько мы в текущем биоме (первые 5 труб — переход)
+  const pos = score % BIOME_PIPES;
+  return Math.min(1, pos / 5);
+}
+
+function updateBiome(){
+  const nb = getBiome();
+  if(nb !== biome){
+    prevBiome = biome;
+    biome = nb;
+    biomeAnimals = [];
+    // Спавним новых животных
+    spawnAnimals();
+  }
+  biomeAlpha = getBiomeBlend();
+}
+
+function spawnAnimals(){
+  biomeAnimals = [];
+  if(biome===0){ // горы — орлы, козлы
+    for(let i=0;i<3;i++) biomeAnimals.push({type:'eagle_bg',x:W+Math.random()*W*2,y:H*0.2+Math.random()*H*0.25,vx:-(0.4+Math.random()*0.5),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<2;i++) biomeAnimals.push({type:'goat',x:W+Math.random()*W*1.5,y:H*0.55+Math.random()*H*0.1,vx:-(0.2+Math.random()*0.3),phase:Math.random()*Math.PI*2,flip:false});
+  } else if(biome===1){ // пустыня — верблюды, скорпионы, стервятники
+    for(let i=0;i<2;i++) biomeAnimals.push({type:'camel',x:W+Math.random()*W*2,y:H*0.72+Math.random()*H*0.05,vx:-(0.15+Math.random()*0.2),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<3;i++) biomeAnimals.push({type:'vulture',x:W+Math.random()*W*2,y:H*0.15+Math.random()*H*0.2,vx:-(0.3+Math.random()*0.4),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<3;i++) biomeAnimals.push({type:'scorpion',x:W+Math.random()*W*2,y:H*0.78+Math.random()*H*0.04,vx:-(0.1+Math.random()*0.15),phase:Math.random()*Math.PI*2,flip:false});
+  } else if(biome===2){ // море — акулы, киты, дельфины
+    for(let i=0;i<2;i++) biomeAnimals.push({type:'whale',x:W+Math.random()*W*2,y:H*0.65+Math.random()*H*0.1,vx:-(0.2+Math.random()*0.25),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<3;i++) biomeAnimals.push({type:'shark',x:W+Math.random()*W*2,y:H*0.6+Math.random()*H*0.15,vx:-(0.35+Math.random()*0.4),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<3;i++) biomeAnimals.push({type:'dolphin',x:W+Math.random()*W*2,y:H*0.58+Math.random()*H*0.12,vx:-(0.4+Math.random()*0.5),phase:Math.random()*Math.PI*2,flip:false});
+  } else { // арктика — белые медведи, пингвины, тюлени
+    for(let i=0;i<2;i++) biomeAnimals.push({type:'polarbear',x:W+Math.random()*W*2,y:H*0.72+Math.random()*H*0.05,vx:-(0.18+Math.random()*0.2),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<4;i++) biomeAnimals.push({type:'penguin',x:W+Math.random()*W*2,y:H*0.74+Math.random()*H*0.04,vx:-(0.12+Math.random()*0.15),phase:Math.random()*Math.PI*2,flip:false});
+    for(let i=0;i<2;i++) biomeAnimals.push({type:'seal',x:W+Math.random()*W*2,y:H*0.73+Math.random()*H*0.05,vx:-(0.2+Math.random()*0.2),phase:Math.random()*Math.PI*2,flip:false});
+  }
+}
+
+function updateAnimals(){
+  biomeAnimals.forEach(a=>{
+    a.x += a.vx * DT;
+    a.phase += 0.04 * DT;
+    if(a.x < -200) a.x = W + 100 + Math.random()*300;
+  });
+}
+
+// Рисуем животное по типу
+function drawAnimal(a){
+  const s = Math.min(W,H)/400; // масштаб
+  CX.save();
+  CX.translate(a.x, a.y);
+  if(a.vx > 0) CX.scale(-1,1);
+  CX.globalAlpha = biomeAlpha * 0.82;
+
+  if(a.type==='eagle_bg'){
+    // Орёл фоновый — силуэт
+    const flap = Math.sin(a.phase)*0.4;
+    CX.fillStyle='rgba(30,20,10,0.7)';
+    CX.beginPath(); CX.ellipse(0,0,14*s,5*s,0,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.moveTo(-18*s,flap*8*s); CX.quadraticCurveTo(0,-10*s+flap*12*s,18*s,flap*8*s); CX.stroke();
+  }
+  else if(a.type==='goat'){
+    // Козёл на горе
+    const leg = Math.sin(a.phase)*3*s;
+    CX.fillStyle='#c8b89a';
+    CX.fillRect(-10*s,-12*s,20*s,10*s); // тело
+    CX.beginPath(); CX.arc(10*s,-16*s,6*s,0,Math.PI*2); CX.fill(); // голова
+    CX.fillStyle='#8b7355';
+    // рога
+    CX.beginPath(); CX.moveTo(12*s,-20*s); CX.lineTo(16*s,-26*s); CX.lineWidth=2; CX.strokeStyle='#8b7355'; CX.stroke();
+    // ноги
+    CX.fillRect(-8*s,0,3*s,(8+leg)*s);
+    CX.fillRect(4*s,0,3*s,(8-leg)*s);
+  }
+  else if(a.type==='camel'){
+    const step = Math.sin(a.phase)*2*s;
+    CX.fillStyle='#c8a96e';
+    CX.fillRect(-22*s,-10*s,44*s,16*s); // тело
+    // горбы
+    CX.beginPath(); CX.ellipse(-6*s,-18*s,8*s,10*s,0,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.ellipse(8*s,-16*s,7*s,9*s,0,0,Math.PI*2); CX.fill();
+    // шея+голова
+    CX.fillRect(14*s,-20*s,5*s,12*s);
+    CX.beginPath(); CX.ellipse(20*s,-22*s,6*s,5*s,0.3,0,Math.PI*2); CX.fill();
+    // ноги
+    CX.fillStyle='#b8936a';
+    [-15,-5,5,15].forEach((lx,i)=>CX.fillRect(lx*s,6*s,4*s,(12+(i%2===0?step:-step))*s));
+  }
+  else if(a.type==='vulture'){
+    const flap = Math.sin(a.phase)*0.5;
+    CX.fillStyle='#4a3728';
+    CX.beginPath(); CX.ellipse(0,0,12*s,6*s,0,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.moveTo(-20*s,flap*10*s); CX.quadraticCurveTo(0,-8*s+flap*14*s,20*s,flap*10*s); CX.lineWidth=3*s; CX.strokeStyle='#4a3728'; CX.stroke();
+    CX.fillStyle='#e8c87a'; CX.beginPath(); CX.arc(14*s,-2*s,4*s,0,Math.PI*2); CX.fill(); // голая голова
+  }
+  else if(a.type==='scorpion'){
+    CX.fillStyle='#8b6914';
+    CX.beginPath(); CX.ellipse(0,0,8*s,5*s,0,0,Math.PI*2); CX.fill();
+    // хвост-дуга
+    CX.beginPath(); CX.arc(-5*s,-8*s,8*s,0.5,Math.PI); CX.lineWidth=3*s; CX.strokeStyle='#8b6914'; CX.stroke();
+    CX.beginPath(); CX.arc(-12*s,-8*s,2*s,0,Math.PI*2); CX.fillStyle='#cc3333'; CX.fill();
+    // клешни
+    CX.lineWidth=2*s; CX.strokeStyle='#8b6914';
+    CX.beginPath(); CX.moveTo(6*s,0); CX.lineTo(14*s,-4*s); CX.stroke();
+    CX.beginPath(); CX.moveTo(6*s,0); CX.lineTo(14*s,4*s); CX.stroke();
+  }
+  else if(a.type==='whale'){
+    const bob = Math.sin(a.phase)*4*s;
+    CX.translate(0, bob);
+    CX.fillStyle='#2c5f8a';
+    CX.beginPath(); CX.ellipse(0,0,35*s,14*s,0,0,Math.PI*2); CX.fill();
+    // хвост
+    CX.beginPath(); CX.moveTo(-35*s,0); CX.lineTo(-48*s,-10*s); CX.lineTo(-48*s,10*s); CX.closePath(); CX.fill();
+    CX.fillStyle='#5ba3d0'; // брюхо
+    CX.beginPath(); CX.ellipse(5*s,4*s,22*s,7*s,0,0,Math.PI*2); CX.fill();
+    // фонтан
+    CX.strokeStyle='rgba(180,220,255,0.7)'; CX.lineWidth=2;
+    for(let fi=0;fi<3;fi++){
+      CX.beginPath(); CX.moveTo((20+fi*3)*s,-12*s); CX.quadraticCurveTo((22+fi*4)*s,-28*s,(20+fi*6)*s,-20*s); CX.stroke();
+    }
+  }
+  else if(a.type==='shark'){
+    const bob = Math.sin(a.phase)*3*s;
+    CX.translate(0, bob);
+    CX.fillStyle='#607080';
+    CX.beginPath(); CX.moveTo(30*s,0); CX.lineTo(-20*s,-6*s); CX.lineTo(-30*s,0); CX.lineTo(-20*s,6*s); CX.closePath(); CX.fill();
+    // плавник
+    CX.beginPath(); CX.moveTo(5*s,-6*s); CX.lineTo(10*s,-18*s); CX.lineTo(16*s,-6*s); CX.closePath(); CX.fill();
+    CX.fillStyle='#e0e5ea'; // брюхо
+    CX.beginPath(); CX.ellipse(5*s,3*s,16*s,4*s,0,0,Math.PI*2); CX.fill();
+  }
+  else if(a.type==='dolphin'){
+    const bob = Math.sin(a.phase)*5*s;
+    CX.translate(0, bob);
+    CX.fillStyle='#4a7fa5';
+    CX.beginPath(); CX.ellipse(0,0,20*s,8*s,-0.2,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.moveTo(-20*s,0); CX.lineTo(-28*s,-7*s); CX.lineTo(-26*s,5*s); CX.closePath(); CX.fill();
+    // плавник
+    CX.beginPath(); CX.moveTo(2*s,-8*s); CX.lineTo(7*s,-16*s); CX.lineTo(12*s,-8*s); CX.closePath(); CX.fill();
+    CX.fillStyle='#c8dde8';
+    CX.beginPath(); CX.ellipse(4*s,3*s,10*s,4*s,0,0,Math.PI*2); CX.fill();
+  }
+  else if(a.type==='polarbear'){
+    const step = Math.sin(a.phase)*3*s;
+    CX.fillStyle='#f0efe8';
+    CX.beginPath(); CX.ellipse(0,-5*s,16*s,9*s,0,0,Math.PI*2); CX.fill(); // тело
+    CX.beginPath(); CX.arc(16*s,-9*s,7*s,0,Math.PI*2); CX.fill(); // голова
+    CX.fillStyle='#d8d7d0';
+    CX.beginPath(); CX.arc(21*s,-7*s,3*s,0,Math.PI*2); CX.fill(); // нос
+    // уши
+    CX.fillStyle='#f0efe8';
+    CX.beginPath(); CX.arc(14*s,-15*s,3*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(19*s,-15*s,3*s,0,Math.PI*2); CX.fill();
+    // ноги
+    CX.fillStyle='#e8e7e0';
+    [-8,-2].forEach((lx,i)=>CX.fillRect(lx*s,4*s,6*s,(10+(i===0?step:-step))*s));
+  }
+  else if(a.type==='penguin'){
+    const bob = Math.sin(a.phase)*1*s;
+    CX.translate(0, bob);
+    CX.fillStyle='#1a1a1a';
+    CX.beginPath(); CX.ellipse(0,-5*s,7*s,11*s,0,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#f5f5f5'; // брюхо
+    CX.beginPath(); CX.ellipse(0,-4*s,4*s,7*s,0,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#ff8c00'; // клюв
+    CX.beginPath(); CX.arc(0,-14*s,5*s,0,Math.PI*2); CX.fill(); // голова
+    CX.fillStyle='#1a1a1a'; CX.beginPath(); CX.arc(0,-14*s,5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#f5f5f5'; CX.beginPath(); CX.arc(1*s,-14*s,3*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#ff8c00';
+    CX.beginPath(); CX.moveTo(5*s,-14*s); CX.lineTo(9*s,-12*s); CX.lineTo(5*s,-11*s); CX.closePath(); CX.fill();
+    // крылья
+    CX.fillStyle='#1a1a1a';
+    CX.beginPath(); CX.ellipse(-9*s,-6*s,3*s,7*s,0.3,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.ellipse(9*s,-6*s,3*s,7*s,-0.3,0,Math.PI*2); CX.fill();
+    // лапы
+    CX.fillStyle='#ff8c00';
+    CX.fillRect(-4*s,6*s,3*s,4*s); CX.fillRect(1*s,6*s,3*s,4*s);
+  }
+  else if(a.type==='seal'){
+    const bob = Math.sin(a.phase)*2*s;
+    CX.translate(0, bob);
+    CX.fillStyle='#8a7a6a';
+    CX.beginPath(); CX.ellipse(0,0,18*s,8*s,0.15,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(18*s,-2*s,6*s,0,Math.PI*2); CX.fill(); // голова
+    CX.fillStyle='#6a5a4a';
+    CX.beginPath(); CX.moveTo(-18*s,0); CX.lineTo(-26*s,-5*s); CX.lineTo(-22*s,5*s); CX.closePath(); CX.fill(); // хвост
+    CX.fillStyle='#c8b8a8';
+    CX.beginPath(); CX.arc(20*s,-1*s,2*s,0,Math.PI*2); CX.fill(); // нос
+    // усы
+    CX.strokeStyle='rgba(200,200,200,0.8)'; CX.lineWidth=1;
+    [-2,0,2].forEach(dy=>{CX.beginPath();CX.moveTo(22*s,(dy-1)*s);CX.lineTo(30*s,dy*s);CX.stroke();});
+  }
+
+  CX.globalAlpha=1;
+  CX.restore();
+}
+
+function drawAnimals(){
+  if(STATE!=='playing'&&STATE!=='over') return;
+  biomeAnimals.forEach(a=>drawAnimal(a));
+}
+
+// ══════════════════════════════════════════
+// ПЕЙЗАЖ БИОМА — заменяет drawMountains
+// ══════════════════════════════════════════
+function getBiomeGroundColor(bm, layer){
+  const layerDark = 0.7 + layer*0.1;
+  if(bm===0){ // горы
+    return [`rgb(${[18,28,55].map(v=>Math.round(v*layerDark))})`,
+            `rgb(${[75,55,75].map(v=>Math.round(v*layerDark))})`];
+  } else if(bm===1){ // пустыня
+    return [`rgb(${[180,120,40].map(v=>Math.round(v*layerDark))})`,
+            `rgb(${[210,160,70].map(v=>Math.round(v*layerDark))})`];
+  } else if(bm===2){ // море
+    return [`rgb(${[10,40,100].map(v=>Math.round(v*layerDark))})`,
+            `rgb(${[20,80,160].map(v=>Math.round(v*layerDark))})`];
+  } else { // арктика
+    return [`rgb(${[160,190,220].map(v=>Math.round(v*layerDark))})`,
+            `rgb(${[200,220,240].map(v=>Math.round(v*layerDark))})`];
+  }
+}
+
+function drawBiomeForeground(){
+  // Наземный слой биома внизу экрана (под животными)
+  const nb = getBiome();
+  const blend = getBiomeBlend();
+  const groundH = H * 0.08;
+  const groundY = H - groundH;
+
+  if(nb===0){ // горы — снег на вершинах уже в drawMountains
+    return;
+  }
+  else if(nb===1){ // пустыня — песчаная земля + кактусы
+    CX.save();
+    CX.globalAlpha = blend;
+    const g = CX.createLinearGradient(0,groundY,0,H);
+    g.addColorStop(0,'#d4a843'); g.addColorStop(1,'#c8944a');
+    CX.fillStyle=g; CX.fillRect(0,groundY,W,groundH);
+    // Дюны
+    CX.fillStyle='#e8b855';
+    for(let dx=0;dx<W;dx+=80){
+      CX.beginPath(); CX.ellipse(dx+40,groundY,50,groundH*0.4,0,Math.PI,0); CX.fill();
+    }
+    CX.globalAlpha=1;
+    CX.restore();
+  }
+  else if(nb===2){ // море — вода с волнами
+    CX.save();
+    CX.globalAlpha = blend;
+    const g2 = CX.createLinearGradient(0,groundY,0,H);
+    g2.addColorStop(0,'rgba(30,100,200,0.85)'); g2.addColorStop(1,'rgba(10,50,130,0.95)');
+    CX.fillStyle=g2; CX.fillRect(0,groundY,W,groundH);
+    // Волны
+    CX.strokeStyle='rgba(150,210,255,0.5)'; CX.lineWidth=2;
+    const wt = (Date.now()/800)%1;
+    for(let wx=0;wx<W+40;wx+=40){
+      const ox = (wx + wt*40) % (W+40) - 20;
+      CX.beginPath(); CX.moveTo(ox,groundY+groundH*0.3);
+      CX.quadraticCurveTo(ox+10,groundY,ox+20,groundY+groundH*0.3);
+      CX.stroke();
+    }
+    CX.globalAlpha=1;
+    CX.restore();
+  }
+  else { // арктика — снег + лёд
+    CX.save();
+    CX.globalAlpha = blend;
+    const g3 = CX.createLinearGradient(0,groundY,0,H);
+    g3.addColorStop(0,'#d8eef8'); g3.addColorStop(1,'#a8cce0');
+    CX.fillStyle=g3; CX.fillRect(0,groundY,W,groundH);
+    // Льдины
+    CX.fillStyle='rgba(255,255,255,0.6)';
+    for(let ix=0;ix<W;ix+=60){
+      CX.beginPath(); CX.ellipse(ix+30,groundY+5,25,8,0,0,Math.PI*2); CX.fill();
+    }
+    CX.globalAlpha=1;
+    CX.restore();
+  }
+}
+
+// Пальмы в море-биоме (рисуются на горизонте)
+function drawPalms(){
+  if(biome!==2) return;
+  const blend = getBiomeBlend();
+  CX.save(); CX.globalAlpha = blend*0.7;
+  // Статичные пальмы — двигаются медленно
+  [W*0.1, W*0.35, W*0.65, W*0.9].forEach((px, pi)=>{
+    const py = H*0.72;
+    const sway = Math.sin(Date.now()/1200 + pi)*4;
+    // ствол
+    CX.strokeStyle='#8b5e3c'; CX.lineWidth=5;
+    CX.beginPath(); CX.moveTo(px,py); CX.quadraticCurveTo(px+sway*2,py-30,px+sway,py-60); CX.stroke();
+    // листья
+    CX.strokeStyle='#2d8a3e'; CX.lineWidth=3;
+    for(let li=0;li<6;li++){
+      const angle = (li/6)*Math.PI*2 + sway*0.05;
+      const lx = px+sway + Math.cos(angle)*28;
+      const ly = py-60 + Math.sin(angle)*14;
+      CX.beginPath(); CX.moveTo(px+sway,py-60); CX.quadraticCurveTo(lx-Math.cos(angle)*10,ly,lx,ly); CX.stroke();
+    }
+  });
+  CX.globalAlpha=1; CX.restore();
+}
+
+// Снег в арктике — переопределяем поведение погоды
+function spawnSnow(){
+  rainDrops.push({
+    x: Math.random()*W*1.2,
+    y: -10,
+    vx: (Math.random()-0.5)*0.8,
+    vy: 1.5 + Math.random()*2,
+    len: 3, // маленькие снежинки
+    alpha: 0.5 + Math.random()*0.4,
+    snow: true
+  });
+}
+
 function drawSky(){
-  const N=[[8,6,22],[12,10,35]], D=[[60,20,60],[100,30,80]],
-        Y=[[28,95,185],[95,172,245]], S=[[75,28,18],[170,75,28]];
+  const bm=getBiome(), bl=getBiomeBlend();
+  // Базовые палитры неба для каждого биома
+  const skyPal = [
+    { N:[[8,6,22],[12,10,35]], D:[[60,20,60],[100,30,80]], Y:[[28,95,185],[95,172,245]], S:[[75,28,18],[170,75,28]] }, // горы
+    { N:[[20,10,5],[30,15,8]], D:[[80,40,10],[130,70,20]], Y:[[80,130,200],[150,200,240]], S:[[120,60,10],[200,120,30]] }, // пустыня
+    { N:[[5,10,30],[8,15,45]], D:[[20,50,100],[40,80,150]], Y:[[30,100,190],[80,160,230]], S:[[60,20,15],[140,60,20]] }, // море
+    { N:[[10,20,40],[15,28,55]], D:[[40,60,90],[70,100,140]], Y:[[80,130,180],[130,175,220]], S:[[50,30,15],[100,60,25]] }, // арктика
+  ];
+  const p = skyPal[bm], pp = skyPal[prevBiome];
+  function blendSkyPal(key){ return { top: p[key][0].map((v,i)=>Math.round(v*bl+pp[key][0][i]*(1-bl))), bot: p[key][1].map((v,i)=>Math.round(v*bl+pp[key][1][i]*(1-bl))) }; }
+  const N=blendSkyPal('N'), D=blendSkyPal('D'), Y=blendSkyPal('Y'), S=blendSkyPal('S');
   let top,bot; const c=cycleDayNight;
-  if(c<.25){const t=c/.25;       top=lp3(N[0],D[0],t);bot=lp3(N[1],D[1],t);}
-  else if(c<.5){const t=(c-.25)/.25; top=lp3(D[0],Y[0],t);bot=lp3(D[1],Y[1],t);}
-  else if(c<.75){const t=(c-.5)/.25;  top=lp3(Y[0],S[0],t);bot=lp3(Y[1],S[1],t);}
-  else{const t=(c-.75)/.25;           top=lp3(S[0],N[0],t);bot=lp3(S[1],N[1],t);}
+  if(c<.25){const t=c/.25;       top=lp3(N.top,D.top,t);bot=lp3(N.bot,D.bot,t);}
+  else if(c<.5){const t=(c-.25)/.25; top=lp3(D.top,Y.top,t);bot=lp3(D.bot,Y.bot,t);}
+  else if(c<.75){const t=(c-.5)/.25;  top=lp3(Y.top,S.top,t);bot=lp3(Y.bot,S.bot,t);}
+  else{const t=(c-.75)/.25;           top=lp3(S.top,N.top,t);bot=lp3(S.bot,N.bot,t);}
   if(lightFlash>0){const f=lightFlash/12;top=lp3(top,[230,235,255],f*.8);bot=lp3(bot,[190,210,255],f*.6);}
   const g=CX.createLinearGradient(0,0,0,H);
   g.addColorStop(0,`rgb(${top})`); g.addColorStop(1,`rgb(${bot})`);
@@ -984,13 +1535,23 @@ function drawCelestial(){
 
 function drawMountains(){
   const c=cycleDayNight;
+  // Цвета гор зависят от биома
+  const bm=getBiome(), bl=getBiomeBlend();
+  const mountainPalettes = [
+    [[18,28,55],[75,55,75],[38,18,28]], // горы — синие/фиолетовые
+    [[120,80,20],[180,130,50],[100,60,10]], // пустыня — песок/охра
+    [[10,30,70],[20,60,120],[8,20,50]],  // море — тёмно-синие
+    [[100,130,160],[150,180,210],[80,110,140]], // арктика — серо-голубые
+  ];
+  const prevP = mountainPalettes[prevBiome], curP = mountainPalettes[bm];
+  function blendPal(i){ return [0,1,2].map(j=>Math.round(prevP[i][j]*(1-bl)+curP[i][j]*bl)); }
   const cols=[
-    c<.5?lp3([18,28,55],[75,55,75],c*2):lp3([75,55,75],[38,18,28],(c-.5)*2),
-    c<.5?lp3([13,22,45],[55,38,55],c*2):lp3([55,38,55],[28,13,22],(c-.5)*2),
-    c<.5?lp3([8,16,35],[38,22,38],c*2) :lp3([38,22,38],[18,8,14],(c-.5)*2),
+    c<.5?lp3(blendPal(0),blendPal(1),c*2):lp3(blendPal(1),blendPal(2),(c-.5)*2),
+    c<.5?lp3(blendPal(0).map(v=>Math.round(v*.85)),blendPal(1).map(v=>Math.round(v*.85)),c*2):lp3(blendPal(1).map(v=>Math.round(v*.85)),blendPal(2).map(v=>Math.round(v*.85)),(c-.5)*2),
+    c<.5?lp3(blendPal(0).map(v=>Math.round(v*.7)),blendPal(1).map(v=>Math.round(v*.7)),c*2):lp3(blendPal(1).map(v=>Math.round(v*.7)),blendPal(2).map(v=>Math.round(v*.7)),(c-.5)*2),
   ];
   mountains.forEach((m,li)=>{
-    const spd=m.sp*(SPEED/3)*.14;
+    const spd=m.sp*(SPEED/3)*.14*DT;
     m.pts.forEach(p=>p.x-=spd);
     if(m.pts[0].x<-W/m.pts.length*2){
       const last=m.pts[m.pts.length-1];
@@ -1013,7 +1574,7 @@ function drawMountains(){
 
 function drawClouds(){
   clouds.forEach(cl=>{
-    cl.x-=cl.sp*(SPEED/3);
+    cl.x-=cl.sp*(SPEED/3)*DT;
     if(cl.x<-180){cl.x=W+130;cl.y=30+Math.random()*H*.35;}
     CX.globalAlpha=.06+cycleDayNight*.11; CX.fillStyle='#fff';
     var cr1=Math.max(0,46*cl.s),cr2=Math.max(0,32*cl.s);
@@ -1192,8 +1753,8 @@ function drawBird(){
 function drawParticles(){
   for(let i=particles.length-1;i>=0;i--){
     const p=particles[i];
-    p.x+=p.vx; p.y+=p.vy; p.vy+=.08;
-    p.life-=.03; p.r*=.96;
+    p.x+=p.vx*DT; p.y+=p.vy*DT; p.vy+=.08*DT;
+    p.life-=.03*DT; p.r*=Math.pow(.96,DT);
     if(p.life<=0){particles.splice(i,1);continue;}
     CX.globalAlpha=p.life; CX.fillStyle=p.col;
     if(p.r>0){CX.beginPath(); CX.arc(p.x,p.y,p.r,0,Math.PI*2); CX.fill();}
@@ -1625,7 +2186,7 @@ function updateBonuses(){
 
   for(let i=bonuses.length-1; i>=0; i--){
     const bo = bonuses[i];
-    bo.x -= spd * 0.7;
+    bo.x -= spd * 0.7 * DT;
     bo.pulse += 0.08;
     // Подобрать
     const dx = bird.x - bo.x, dy = bird.y - bo.y;
@@ -1664,7 +2225,7 @@ function updateCoins(){
   const br  = Math.min(W,H)/520*9 * BIRDS[birdIdx].hitM;
   for(let i=coins.length-1;i>=0;i--){
     const co=coins[i];
-    co.x -= spd;
+    co.x -= spd * DT;
     co.pulse += 0.1;
     const dx=bird.x-co.x, dy=bird.y-co.y;
     const dist=Math.sqrt(dx*dx+dy*dy);
@@ -1879,7 +2440,18 @@ function drawUnlockBanner(){
 // ══════════════════════════════════════════
 // ГЛАВНЫЙ ЦИКЛ
 // ══════════════════════════════════════════
-function loop(){
+let _lastT = 0;
+let DT = 1; // множитель дельта-времени (1 = ровно 60fps)
+
+function loop(ts){
+  // Delta-time: нормируем к 60fps
+  // DT=1 при 60fps, DT=2 при 30fps — движение одинаковое
+  if(_lastT > 0){
+    const raw = ts - _lastT;
+    DT = Math.min(2.5, raw / 16.667); // ограничиваем чтобы не прыгать при tab switch
+  }
+  _lastT = ts;
+
   cycleDayNight=(cycleDayNight+.00035)%1;
   CX.clearRect(0,0,W,H);
 
@@ -1897,8 +2469,14 @@ function loop(){
   drawStars();
   drawCelestial();
   drawMountains();
+  drawBiomeForeground();
+  drawPalms();
+  drawAnimals();
   drawClouds();
 
+  // Погода
+  if(STATE==='playing') updateWeather();
+  drawWeather();
   // Трубы — только в игре и после смерти
   if(STATE==='playing'||STATE==='over') drawPipes();
 
