@@ -48,6 +48,16 @@ canvas{display:block;position:fixed;top:0;left:0}
 .sel-name-row input::placeholder{color:rgba(255,255,255,.3)}
 
 .sel-btns{display:flex;gap:12px;width:100%;max-width:500px}
+.diff-row{display:flex;gap:6px;width:100%;max-width:500px;margin-bottom:12px;align-items:center}
+.diff-label{font-size:11px;letter-spacing:2px;color:rgba(255,255,255,.4);white-space:nowrap;margin-right:4px}
+.diff-btn{flex:1;padding:8px 4px;border:2px solid rgba(255,255,255,.12);border-radius:10px;
+  background:rgba(255,255,255,.04);color:rgba(255,255,255,.5);font-size:11px;font-weight:800;
+  letter-spacing:1px;cursor:pointer;transition:all .2s;text-align:center;line-height:1.3}
+.diff-btn:hover{border-color:rgba(241,196,15,.5);color:#f1c40f;transform:translateY(-2px)}
+.diff-btn.active{border-color:#f1c40f;background:rgba(241,196,15,.12);color:#f1c40f;
+  box-shadow:0 0 12px rgba(241,196,15,.3)}
+.diff-btn.diff-5.active{border-color:#e74c3c;background:rgba(231,76,60,.12);color:#e74c3c;
+  box-shadow:0 0 12px rgba(231,76,60,.4)}
 .btn-play{flex:2;padding:15px;border:none;border-radius:12px;
   background:linear-gradient(135deg,#f1c40f,#e67e22);
   color:#000;font-size:18px;font-weight:900;letter-spacing:2px;cursor:pointer;transition:.2s}
@@ -183,6 +193,14 @@ canvas{display:block;position:fixed;top:0;left:0}
   <div class="sel-name-row">
     <input type="text" id="inp-name" placeholder="Введи имя (необязательно)"
            maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div class="diff-row">
+    <span class="diff-label">СКОРОСТЬ:</span>
+    <button class="diff-btn" onclick="setDiff(1)" id="diff-1">🐢<br>ЛЁГКИЙ</button>
+    <button class="diff-btn" onclick="setDiff(2)" id="diff-2">🐦<br>СРЕДНИЙ</button>
+    <button class="diff-btn" onclick="setDiff(3)" id="diff-3">🦅<br>БЫСТРО</button>
+    <button class="diff-btn" onclick="setDiff(4)" id="diff-4">⚡<br>ЖЁСТКО</button>
+    <button class="diff-btn diff-5" onclick="setDiff(5)" id="diff-5">💀<br>НЕВОЗМОЖНО</button>
   </div>
   <div class="sel-btns">
     <button class="btn-play" onclick="clickPlay()">▶ ИГРАТЬ</button>
@@ -347,13 +365,13 @@ function checkRotate(){
 // ══════════════════════════════════════════
 let GRAV, JUMP, SPEED, GAP, PIPE_INT;
 function recalcPhysics(){
-  // Всё в процентах от размера экрана — одинаковое ощущение на любом устройстве
-  // На телефоне 390px и ПК 1440px труба проходит одинаковый % экрана за кадр
-  SPEED    = W * 0.0038;       // ~0.38% ширины за кадр
-  GRAV     = H * 0.00038;      // ~0.038% высоты за кадр²
-  JUMP     = H * -0.0108;      // ~1.08% высоты за прыжок
-  GAP      = H * 0.42;         // 42% высоты — зазор между трубами
-  PIPE_INT = 360;               // кадров между трубами
+  // Скорость масштабируется по ширине экрана + уровню сложности
+  const speedMult = [0.55, 0.75, 1.0, 1.35, 1.8][diffLevel-1];
+  SPEED    = W * 0.0055 * speedMult;
+  GRAV     = H * 0.00042;
+  JUMP     = H * -0.011;
+  GAP      = H * (0.44 - (diffLevel-1)*0.03); // на высоком уровне зазор меньше
+  PIPE_INT = Math.round(380 - (diffLevel-1)*30); // на высоком уровне трубы чаще
 }
 
 // ══════════════════════════════════════════
@@ -363,6 +381,7 @@ function recalcPhysics(){
 let STATE = 'menu';
 let birdIdx = 0;
 let playerName = 'ИГРОК';
+let diffLevel = 2; // 1-5, по умолчанию средний
 
 let bird, pipes, trails, particles;
 let score, frame, combo, comboTimer;
@@ -1210,149 +1229,592 @@ function updateAnimals(){
 
 // Рисуем животное по типу
 function drawAnimal(a){
-  const s = Math.min(W,H)/400; // масштаб
+  const s = Math.min(W,H)/360;
   CX.save();
   CX.translate(a.x, a.y);
   if(a.vx > 0) CX.scale(-1,1);
-  CX.globalAlpha = biomeAlpha * 0.82;
+  CX.globalAlpha = biomeAlpha * 0.88;
+
+  const t = a.phase;
+  function fill(col){CX.fillStyle=col; CX.fill();}
+  function stroke(col,lw){CX.strokeStyle=col;CX.lineWidth=lw*s;CX.stroke();}
 
   if(a.type==='eagle_bg'){
-    // Орёл фоновый — силуэт
-    const flap = Math.sin(a.phase)*0.4;
-    CX.fillStyle='rgba(30,20,10,0.7)';
-    CX.beginPath(); CX.ellipse(0,0,14*s,5*s,0,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.moveTo(-18*s,flap*8*s); CX.quadraticCurveTo(0,-10*s+flap*12*s,18*s,flap*8*s); CX.stroke();
+    // Орёл в полёте — вид сверху-сбоку
+    const flap=Math.sin(t)*0.45;
+    const wA=flap*22*s, wB=-flap*8*s;
+    // Тень
+    CX.globalAlpha=biomeAlpha*0.25;
+    CX.fillStyle='rgba(0,0,0,0.4)';
+    CX.beginPath(); CX.ellipse(0,4*s,18*s,4*s,0,0,Math.PI*2); CX.fill();
+    CX.globalAlpha=biomeAlpha*0.88;
+    // Левое крыло
+    CX.fillStyle='#3d2b1a';
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(-8*s,wB,-24*s,wA-6*s,-30*s,wA);
+    CX.bezierCurveTo(-24*s,wA+8*s,-8*s,wB+8*s,0,5*s); CX.closePath(); CX.fill();
+    // Правое крыло
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(8*s,wB,24*s,wA-6*s,30*s,wA);
+    CX.bezierCurveTo(24*s,wA+8*s,8*s,wB+8*s,0,5*s); CX.closePath(); CX.fill();
+    // Тело
+    CX.fillStyle='#5c3d1e';
+    CX.beginPath(); CX.ellipse(0,2*s,7*s,12*s,-0.1,0,Math.PI*2); CX.fill();
+    // Голова белая (белоголовый орлан)
+    CX.fillStyle='#f5f0e8';
+    CX.beginPath(); CX.ellipse(0,-10*s,5*s,5*s,0,0,Math.PI*2); CX.fill();
+    // Клюв
+    CX.fillStyle='#e8b830';
+    CX.beginPath(); CX.moveTo(3*s,-12*s); CX.lineTo(8*s,-10*s); CX.lineTo(4*s,-8*s); CX.closePath(); CX.fill();
+    // Полоса крыла
+    CX.fillStyle='#8b6040';
+    CX.beginPath(); CX.ellipse(-14*s,wA*0.4,10*s,2.5*s,-0.15,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.ellipse(14*s,wA*0.4,10*s,2.5*s,0.15,0,Math.PI*2); CX.fill();
+    // Перья хвоста
+    CX.fillStyle='#3d2b1a';
+    for(let fi=-2;fi<=2;fi++){
+      CX.beginPath(); CX.moveTo(fi*2.5*s,10*s);
+      CX.lineTo((fi-0.5)*3*s,18*s); CX.lineTo((fi+0.5)*3*s,18*s); CX.closePath(); CX.fill();
+    }
   }
   else if(a.type==='goat'){
-    // Козёл на горе
-    const leg = Math.sin(a.phase)*3*s;
-    CX.fillStyle='#c8b89a';
-    CX.fillRect(-10*s,-12*s,20*s,10*s); // тело
-    CX.beginPath(); CX.arc(10*s,-16*s,6*s,0,Math.PI*2); CX.fill(); // голова
-    CX.fillStyle='#8b7355';
-    // рога
-    CX.beginPath(); CX.moveTo(12*s,-20*s); CX.lineTo(16*s,-26*s); CX.lineWidth=2; CX.strokeStyle='#8b7355'; CX.stroke();
-    // ноги
-    CX.fillRect(-8*s,0,3*s,(8+leg)*s);
-    CX.fillRect(4*s,0,3*s,(8-leg)*s);
+    const walk=Math.sin(t)*0.18;
+    // Тень
+    CX.fillStyle='rgba(0,0,0,0.2)'; CX.beginPath(); CX.ellipse(0,14*s,14*s,3*s,0,0,Math.PI*2); CX.fill();
+    // Задние ноги
+    CX.fillStyle='#a89070';
+    CX.save(); CX.translate(-7*s,2*s); CX.rotate(-walk);
+    CX.beginPath(); CX.rect(-2*s,0,4*s,10*s);
+    CX.fill(); CX.restore();
+    CX.save(); CX.translate(-2*s,2*s); CX.rotate(walk);
+    CX.fillStyle='#a89070';
+    CX.beginPath(); CX.rect(-2*s,0,4*s,10*s); CX.fill(); CX.restore();
+    // Тело
+    const bodyG=CX.createLinearGradient(-12*s,-14*s,12*s,4*s);
+    bodyG.addColorStop(0,'#d4c4a4'); bodyG.addColorStop(1,'#a89070');
+    CX.fillStyle=bodyG;
+    CX.beginPath(); CX.ellipse(0,-6*s,14*s,9*s,-0.1,0,Math.PI*2); CX.fill();
+    // Передние ноги
+    CX.fillStyle='#b4a080';
+    CX.save(); CX.translate(6*s,0*s); CX.rotate(walk);
+    CX.beginPath(); CX.rect(-2*s,0,4*s,10*s); CX.fill(); CX.restore();
+    CX.save(); CX.translate(10*s,0*s); CX.rotate(-walk);
+    CX.beginPath(); CX.rect(-2*s,0,4*s,10*s); CX.fill(); CX.restore();
+    // Шея
+    CX.fillStyle='#c8b494';
+    CX.beginPath(); CX.moveTo(9*s,-14*s); CX.lineTo(16*s,-24*s); CX.lineTo(19*s,-24*s); CX.lineTo(13*s,-14*s); CX.closePath(); CX.fill();
+    // Голова
+    const hG=CX.createRadialGradient(17*s,-27*s,1*s,16*s,-26*s,7*s);
+    hG.addColorStop(0,'#ddd0b4'); hG.addColorStop(1,'#b8a484');
+    CX.fillStyle=hG;
+    CX.beginPath(); CX.ellipse(16*s,-27*s,7*s,5*s,0.3,0,Math.PI*2); CX.fill();
+    // Ухо
+    CX.fillStyle='#c8b090';
+    CX.beginPath(); CX.ellipse(11*s,-30*s,3*s,5*s,0.6,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#e8c0b0';
+    CX.beginPath(); CX.ellipse(11*s,-30*s,2*s,3.5*s,0.6,0,Math.PI*2); CX.fill();
+    // Рога закрученные
+    CX.strokeStyle='#887060'; CX.lineWidth=2*s;
+    CX.beginPath(); CX.moveTo(14*s,-31*s);
+    CX.bezierCurveTo(12*s,-38*s,16*s,-40*s,18*s,-36*s); CX.stroke();
+    CX.beginPath(); CX.moveTo(17*s,-31*s);
+    CX.bezierCurveTo(15*s,-38*s,20*s,-41*s,22*s,-37*s); CX.stroke();
+    // Глаз
+    CX.fillStyle='#1a1200'; CX.beginPath(); CX.ellipse(20*s,-28*s,1.5*s,1.2*s,0,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.6)'; CX.beginPath(); CX.arc(20.8*s,-28.5*s,0.5*s,0,Math.PI*2); CX.fill();
+    // Морда
+    CX.fillStyle='#c8b090';
+    CX.beginPath(); CX.ellipse(23*s,-25*s,3*s,2.5*s,0.2,0,Math.PI*2); CX.fill();
+    // Борода
+    CX.fillStyle='#a89070';
+    CX.beginPath(); CX.moveTo(21*s,-24*s); CX.bezierCurveTo(23*s,-22*s,22*s,-18*s,20*s,-20*s); CX.closePath(); CX.fill();
+    // Копыта тёмные
+    CX.fillStyle='#3d3020';
+    [-7,-2,6,10].forEach(lx=>{CX.beginPath();CX.ellipse(lx*s,12*s,2.5*s,1.5*s,0,0,Math.PI*2);CX.fill();});
   }
   else if(a.type==='camel'){
-    const step = Math.sin(a.phase)*2*s;
-    CX.fillStyle='#c8a96e';
-    CX.fillRect(-22*s,-10*s,44*s,16*s); // тело
-    // горбы
-    CX.beginPath(); CX.ellipse(-6*s,-18*s,8*s,10*s,0,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.ellipse(8*s,-16*s,7*s,9*s,0,0,Math.PI*2); CX.fill();
-    // шея+голова
-    CX.fillRect(14*s,-20*s,5*s,12*s);
-    CX.beginPath(); CX.ellipse(20*s,-22*s,6*s,5*s,0.3,0,Math.PI*2); CX.fill();
-    // ноги
-    CX.fillStyle='#b8936a';
-    [-15,-5,5,15].forEach((lx,i)=>CX.fillRect(lx*s,6*s,4*s,(12+(i%2===0?step:-step))*s));
+    const walk=Math.sin(t)*0.15;
+    // Тень
+    CX.fillStyle='rgba(0,0,0,0.18)'; CX.beginPath(); CX.ellipse(0,14*s,22*s,3.5*s,0,0,Math.PI*2); CX.fill();
+    // Задние ноги
+    CX.fillStyle='#b89860';
+    [-12,-5].forEach((lx,i)=>{
+      CX.save(); CX.translate(lx*s,4*s); CX.rotate(i===0?-walk:walk);
+      // Бедро
+      CX.beginPath(); CX.rect(-3*s,0,6*s,8*s); CX.fill();
+      // Голень — угол
+      CX.save(); CX.translate(0,8*s); CX.rotate(i===0?walk*2:-walk*2);
+      CX.beginPath(); CX.rect(-2.5*s,0,5*s,8*s); CX.fill();
+      // Копыто
+      CX.fillStyle='#5a3810'; CX.beginPath(); CX.ellipse(0,9*s,3.5*s,2*s,0,0,Math.PI*2); CX.fill();
+      CX.restore(); CX.restore();
+    });
+    // Тело
+    const bodyG=CX.createLinearGradient(-22*s,-12*s,22*s,6*s);
+    bodyG.addColorStop(0,'#d4a84c'); bodyG.addColorStop(0.5,'#c89840'); bodyG.addColorStop(1,'#a87828');
+    CX.fillStyle=bodyG;
+    CX.beginPath(); CX.ellipse(0,-4*s,22*s,11*s,-0.05,0,Math.PI*2); CX.fill();
+    // Горбы — градиентные
+    const humpG=CX.createRadialGradient(-6*s,-18*s,1*s,-6*s,-18*s,10*s);
+    humpG.addColorStop(0,'#e0b860'); humpG.addColorStop(1,'#b08830');
+    CX.fillStyle=humpG;
+    CX.beginPath(); CX.ellipse(-8*s,-18*s,9*s,11*s,-0.1,0,Math.PI*2); CX.fill();
+    const humpG2=CX.createRadialGradient(6*s,-16*s,1*s,6*s,-16*s,9*s);
+    humpG2.addColorStop(0,'#d8b058'); humpG2.addColorStop(1,'#a88028');
+    CX.fillStyle=humpG2;
+    CX.beginPath(); CX.ellipse(8*s,-16*s,8*s,10*s,0.1,0,Math.PI*2); CX.fill();
+    // Передние ноги
+    [4,12].forEach((lx,i)=>{
+      CX.fillStyle='#c0a058';
+      CX.save(); CX.translate(lx*s,4*s); CX.rotate(i===0?walk:-walk);
+      CX.beginPath(); CX.rect(-3*s,0,6*s,8*s); CX.fill();
+      CX.save(); CX.translate(0,8*s); CX.rotate(i===0?-walk*2:walk*2);
+      CX.beginPath(); CX.rect(-2.5*s,0,5*s,7*s); CX.fill();
+      CX.fillStyle='#5a3810'; CX.beginPath(); CX.ellipse(0,8*s,3.5*s,2*s,0,0,Math.PI*2); CX.fill();
+      CX.restore(); CX.restore();
+    });
+    // Шея длинная
+    CX.fillStyle='#c8a040';
+    CX.beginPath(); CX.moveTo(14*s,-12*s); CX.lineTo(22*s,-30*s); CX.lineTo(28*s,-28*s); CX.lineTo(20*s,-10*s); CX.closePath(); CX.fill();
+    // Голова
+    const hG=CX.createLinearGradient(20*s,-36*s,32*s,-24*s);
+    hG.addColorStop(0,'#d8b048'); hG.addColorStop(1,'#b08828');
+    CX.fillStyle=hG;
+    CX.beginPath(); CX.ellipse(26*s,-32*s,8*s,6*s,0.4,0,Math.PI*2); CX.fill();
+    // Ухо
+    CX.fillStyle='#c0a038'; CX.beginPath(); CX.ellipse(22*s,-37*s,2.5*s,4*s,0.2,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#f0c080'; CX.beginPath(); CX.ellipse(22*s,-37*s,1.5*s,2.5*s,0.2,0,Math.PI*2); CX.fill();
+    // Глаз с ресницами
+    CX.fillStyle='#1a1000'; CX.beginPath(); CX.ellipse(30*s,-33*s,1.8*s,1.5*s,0.2,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,180,0.5)'; CX.beginPath(); CX.arc(30.8*s,-33.6*s,0.6*s,0,Math.PI*2); CX.fill();
+    CX.strokeStyle='#3a2800'; CX.lineWidth=1.2*s;
+    for(let ri=0;ri<4;ri++){ const ra=Math.PI*1.3+ri*0.2; CX.beginPath(); CX.moveTo(30*s+Math.cos(ra)*1.5*s,-33*s+Math.sin(ra)*1.2*s); CX.lineTo(30*s+Math.cos(ra)*3*s,-33*s+Math.sin(ra)*2.5*s); CX.stroke(); }
+    // Ноздри
+    CX.fillStyle='#8a5818'; CX.beginPath(); CX.ellipse(33*s,-31*s,1.5*s,1*s,0.3,0,Math.PI*2); CX.fill();
+    // Губы
+    CX.strokeStyle='#8a5818'; CX.lineWidth=1.5*s;
+    CX.beginPath(); CX.moveTo(32*s,-29*s); CX.bezierCurveTo(34*s,-27*s,36*s,-28*s,34*s,-30*s); CX.stroke();
   }
   else if(a.type==='vulture'){
-    const flap = Math.sin(a.phase)*0.5;
-    CX.fillStyle='#4a3728';
-    CX.beginPath(); CX.ellipse(0,0,12*s,6*s,0,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.moveTo(-20*s,flap*10*s); CX.quadraticCurveTo(0,-8*s+flap*14*s,20*s,flap*10*s); CX.lineWidth=3*s; CX.strokeStyle='#4a3728'; CX.stroke();
-    CX.fillStyle='#e8c87a'; CX.beginPath(); CX.arc(14*s,-2*s,4*s,0,Math.PI*2); CX.fill(); // голая голова
+    const flap=Math.sin(t)*0.5;
+    // Тело
+    const bG=CX.createRadialGradient(0,0,2*s,0,0,14*s);
+    bG.addColorStop(0,'#6a4a38'); bG.addColorStop(1,'#3a2418');
+    CX.fillStyle=bG; CX.beginPath(); CX.ellipse(0,0,13*s,7*s,-0.15,0,Math.PI*2); CX.fill();
+    // Крылья — безье с перьями
+    const wy=flap*14*s;
+    CX.fillStyle='#2e1c0e';
+    // Левое
+    CX.beginPath(); CX.moveTo(-2*s,-3*s); CX.bezierCurveTo(-12*s,wy-8*s,-26*s,wy-2*s,-32*s,wy);
+    CX.bezierCurveTo(-26*s,wy+10*s,-12*s,wy+4*s,-2*s,4*s); CX.closePath(); CX.fill();
+    // Правое
+    CX.beginPath(); CX.moveTo(2*s,-3*s); CX.bezierCurveTo(12*s,wy-8*s,26*s,wy-2*s,32*s,wy);
+    CX.bezierCurveTo(26*s,wy+10*s,12*s,wy+4*s,2*s,4*s); CX.closePath(); CX.fill();
+    // Первостепенные перья
+    CX.fillStyle='#1a0e08';
+    [-32,-28,-24].forEach((wx,i)=>{
+      CX.beginPath(); CX.moveTo(wx*s,wy); CX.lineTo((wx-4)*s,wy+8*s); CX.lineTo((wx+2)*s,wy+6*s); CX.closePath(); CX.fill();
+      CX.beginPath(); CX.moveTo(-wx*s,wy); CX.lineTo((-wx+4)*s,wy+8*s); CX.lineTo((-wx-2)*s,wy+6*s); CX.closePath(); CX.fill();
+    });
+    // Шея — голая красная
+    CX.fillStyle='#c05040';
+    CX.beginPath(); CX.moveTo(-4*s,-6*s); CX.lineTo(4*s,-6*s); CX.lineTo(6*s,-14*s); CX.lineTo(-6*s,-14*s); CX.closePath(); CX.fill();
+    // Сморщенная кожа шеи
+    CX.strokeStyle='#903020'; CX.lineWidth=1*s;
+    [-1,0,1].forEach(dx=>{CX.beginPath();CX.moveTo(dx*2*s,-7*s);CX.lineTo(dx*2.5*s,-13*s);CX.stroke();});
+    // Голова
+    const headG=CX.createRadialGradient(8*s,-17*s,1*s,8*s,-17*s,7*s);
+    headG.addColorStop(0,'#e07060'); headG.addColorStop(1,'#a04030');
+    CX.fillStyle=headG; CX.beginPath(); CX.ellipse(8*s,-17*s,7*s,6*s,0.3,0,Math.PI*2); CX.fill();
+    // Клюв крючком
+    CX.fillStyle='#d4b840';
+    CX.beginPath(); CX.moveTo(13*s,-16*s); CX.lineTo(20*s,-14*s); CX.bezierCurveTo(22*s,-14*s,22*s,-12*s,18*s,-13*s); CX.lineTo(13*s,-14*s); CX.closePath(); CX.fill();
+    // Глаз
+    CX.fillStyle='#e8d000'; CX.beginPath(); CX.arc(12*s,-18*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#0a0800'; CX.beginPath(); CX.arc(12*s,-18*s,1.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,200,0.5)'; CX.beginPath(); CX.arc(12.8*s,-18.8*s,0.6*s,0,Math.PI*2); CX.fill();
+    // Хвостовые перья
+    CX.fillStyle='#3a2418';
+    for(let fi=-2;fi<=2;fi++){
+      CX.beginPath(); CX.moveTo(fi*2*s,7*s); CX.lineTo((fi-0.5)*2.5*s,16*s); CX.lineTo((fi+0.5)*2.5*s,16*s); CX.closePath(); CX.fill();
+    }
   }
   else if(a.type==='scorpion'){
-    CX.fillStyle='#8b6914';
-    CX.beginPath(); CX.ellipse(0,0,8*s,5*s,0,0,Math.PI*2); CX.fill();
-    // хвост-дуга
-    CX.beginPath(); CX.arc(-5*s,-8*s,8*s,0.5,Math.PI); CX.lineWidth=3*s; CX.strokeStyle='#8b6914'; CX.stroke();
-    CX.beginPath(); CX.arc(-12*s,-8*s,2*s,0,Math.PI*2); CX.fillStyle='#cc3333'; CX.fill();
-    // клешни
-    CX.lineWidth=2*s; CX.strokeStyle='#8b6914';
-    CX.beginPath(); CX.moveTo(6*s,0); CX.lineTo(14*s,-4*s); CX.stroke();
-    CX.beginPath(); CX.moveTo(6*s,0); CX.lineTo(14*s,4*s); CX.stroke();
+    // Тень
+    CX.fillStyle='rgba(0,0,0,0.2)'; CX.beginPath(); CX.ellipse(0,6*s,12*s,2.5*s,0,0,Math.PI*2); CX.fill();
+    // Хвост-дуга сегментный
+    const hq=Math.sin(t*0.5)*0.15; // покачивание хвоста
+    CX.fillStyle='#9b7a18';
+    const segs=[[-14*s,-12*s],[-10*s,-18*s],[-5*s,-22*s],[0,-22*s]];
+    segs.forEach(([sx2,sy2],i)=>{
+      CX.beginPath(); CX.ellipse(sx2,sy2+hq*i*8*s,3.5*s-(i*0.3*s),3*s-(i*0.2*s),i*0.2,0,Math.PI*2); CX.fill();
+      CX.strokeStyle='#5a4008'; CX.lineWidth=0.8*s; CX.beginPath(); CX.arc(sx2,sy2+hq*i*8*s,3.2*s-(i*0.3*s),0.8,2.4); CX.stroke();
+    });
+    // Жало
+    CX.fillStyle='#cc2200'; CX.beginPath(); CX.moveTo(-14*s,-15*s+hq*4*s); CX.lineTo(-20*s,-22*s+hq*4*s); CX.lineTo(-13*s,-20*s+hq*4*s); CX.closePath(); CX.fill();
+    // Брюшко
+    const abdG=CX.createLinearGradient(-5*s,-6*s,5*s,2*s);
+    abdG.addColorStop(0,'#c89820'); abdG.addColorStop(1,'#8a6010');
+    CX.fillStyle=abdG; CX.beginPath(); CX.ellipse(-2*s,-2*s,9*s,6*s,-0.1,0,Math.PI*2); CX.fill();
+    // Сегменты брюшка
+    CX.strokeStyle='#6a4a08'; CX.lineWidth=0.8*s;
+    [-8,-3,2,7].forEach(bx=>{CX.beginPath();CX.moveTo(bx*s,-7*s);CX.bezierCurveTo(bx*s+1,-4*s,bx*s+1,0,bx*s,-2*s);CX.stroke();});
+    // Карапакс (голова+грудь)
+    const capG=CX.createRadialGradient(6*s,-1*s,1*s,6*s,-1*s,10*s);
+    capG.addColorStop(0,'#e0a020'); capG.addColorStop(1,'#9a6810');
+    CX.fillStyle=capG; CX.beginPath(); CX.ellipse(7*s,-1*s,9*s,7*s,0.1,0,Math.PI*2); CX.fill();
+    // Глаза (4 пары)
+    CX.fillStyle='#0a0a0a';
+    [[10,-4],[12,-2],[8,-5],[14,-4]].forEach(([ex,ey])=>{CX.beginPath();CX.arc(ex*s,ey*s,1*s,0,Math.PI*2);CX.fill();});
+    // Клешни
+    CX.fillStyle='#b88a18';
+    // Левая
+    CX.save(); CX.translate(14*s,-3*s); CX.rotate(-0.3+Math.sin(t)*0.1);
+    CX.beginPath(); CX.rect(0,-2*s,10*s,3*s); CX.fill();
+    CX.translate(10*s,0);
+    CX.fillStyle='#c89a20';
+    CX.beginPath(); CX.ellipse(3*s,0,4*s,3*s,0,0,Math.PI*2); CX.fill();
+    CX.fillStyle='#8a6010';
+    CX.beginPath(); CX.moveTo(-1*s,-3*s); CX.bezierCurveTo(2*s,-6*s,6*s,-5*s,6*s,-2*s); CX.stroke();
+    CX.restore();
+    // Правая
+    CX.fillStyle='#b88a18';
+    CX.save(); CX.translate(14*s,1*s); CX.rotate(0.3-Math.sin(t)*0.1);
+    CX.beginPath(); CX.rect(0,-2*s,10*s,3*s); CX.fill();
+    CX.translate(10*s,0);
+    CX.fillStyle='#c89a20';
+    CX.beginPath(); CX.ellipse(3*s,0,4*s,3*s,0,0,Math.PI*2); CX.fill();
+    CX.restore();
+    // Ноги (8 штук по 4 с каждой стороны)
+    CX.strokeStyle='#7a5808'; CX.lineWidth=1.2*s;
+    [-3,0,3,6].forEach((lx,i)=>{
+      const la=0.4+Math.sin(t+i*0.8)*0.2;
+      CX.beginPath(); CX.moveTo(lx*s,-3*s); CX.lineTo((lx-6)*s,-9*s); CX.lineTo((lx-8)*s,-3*s); CX.stroke();
+      CX.beginPath(); CX.moveTo(lx*s,1*s); CX.lineTo((lx-6)*s,7*s); CX.lineTo((lx-8)*s,2*s); CX.stroke();
+    });
   }
   else if(a.type==='whale'){
-    const bob = Math.sin(a.phase)*4*s;
-    CX.translate(0, bob);
-    CX.fillStyle='#2c5f8a';
-    CX.beginPath(); CX.ellipse(0,0,35*s,14*s,0,0,Math.PI*2); CX.fill();
-    // хвост
-    CX.beginPath(); CX.moveTo(-35*s,0); CX.lineTo(-48*s,-10*s); CX.lineTo(-48*s,10*s); CX.closePath(); CX.fill();
-    CX.fillStyle='#5ba3d0'; // брюхо
-    CX.beginPath(); CX.ellipse(5*s,4*s,22*s,7*s,0,0,Math.PI*2); CX.fill();
-    // фонтан
-    CX.strokeStyle='rgba(180,220,255,0.7)'; CX.lineWidth=2;
-    for(let fi=0;fi<3;fi++){
-      CX.beginPath(); CX.moveTo((20+fi*3)*s,-12*s); CX.quadraticCurveTo((22+fi*4)*s,-28*s,(20+fi*6)*s,-20*s); CX.stroke();
+    const bob=Math.sin(t)*5*s, tailWave=Math.sin(t*0.8)*0.2;
+    CX.translate(0,bob);
+    // Тело основное — синий кит
+    const bG=CX.createLinearGradient(-38*s,-16*s,38*s,16*s);
+    bG.addColorStop(0,'#1a4a7a'); bG.addColorStop(0.4,'#2a6aaa'); bG.addColorStop(1,'#1a3a5a');
+    CX.fillStyle=bG; CX.beginPath(); CX.moveTo(36*s,0); CX.bezierCurveTo(36*s,-12*s,10*s,-16*s,-20*s,-10*s);
+    CX.bezierCurveTo(-35*s,-6*s,-40*s,0,-38*s,4*s);
+    CX.bezierCurveTo(-35*s,10*s,-20*s,14*s,10*s,12*s);
+    CX.bezierCurveTo(22*s,12*s,36*s,10*s,36*s,0); CX.closePath(); CX.fill();
+    // Хвостовой плавник
+    CX.save(); CX.translate(-38*s,2*s); CX.rotate(tailWave);
+    CX.fillStyle='#164070';
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(-6*s,-10*s,-14*s,-12*s,-18*s,-6*s);
+    CX.bezierCurveTo(-16*s,-1*s,-10*s,2*s,0,2*s); CX.closePath(); CX.fill();
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(-6*s,10*s,-14*s,12*s,-18*s,6*s);
+    CX.bezierCurveTo(-16*s,1*s,-10*s,-2*s,0,-2*s); CX.closePath(); CX.fill();
+    CX.restore();
+    // Брюхо светлое
+    const bG2=CX.createLinearGradient(0,-4*s,0,12*s);
+    bG2.addColorStop(0,'#6aaan0'.replace('n','a')); bG2.addColorStop(0,'#6aaad0'); bG2.addColorStop(1,'#3a7aaa');
+    CX.fillStyle='rgba(100,180,220,0.55)';
+    CX.beginPath(); CX.ellipse(5*s,6*s,24*s,8*s,0.1,0,Math.PI*2); CX.fill();
+    // Бороздки на брюхе
+    CX.strokeStyle='rgba(50,120,180,0.4)'; CX.lineWidth=1*s;
+    [-4,-1,2,5,8].forEach(bx=>{
+      CX.beginPath(); CX.moveTo((bx-2)*s,0); CX.bezierCurveTo((bx-1)*s,8*s,(bx+1)*s,12*s,(bx+2)*s,4*s); CX.stroke();
+    });
+    // Грудной плавник
+    CX.fillStyle='#1a4070';
+    CX.beginPath(); CX.moveTo(10*s,8*s); CX.bezierCurveTo(5*s,14*s,-8*s,22*s,-14*s,18*s);
+    CX.bezierCurveTo(-10*s,12*s,4*s,8*s,10*s,8*s); CX.closePath(); CX.fill();
+    // Голова с ртом
+    CX.fillStyle='#1a3060';
+    CX.beginPath(); CX.ellipse(32*s,-2*s,6*s,9*s,0.1,0,Math.PI*2); CX.fill();
+    // Линия рта
+    CX.strokeStyle='#0a2040'; CX.lineWidth=2*s;
+    CX.beginPath(); CX.moveTo(28*s,3*s); CX.bezierCurveTo(32*s,6*s,36*s,4*s,38*s,1*s); CX.stroke();
+    // Глаз
+    CX.fillStyle='#0a1820'; CX.beginPath(); CX.arc(30*s,-5*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.6)'; CX.beginPath(); CX.arc(31*s,-6*s,0.8*s,0,Math.PI*2); CX.fill();
+    // Дыхало
+    CX.fillStyle='#102840';
+    CX.beginPath(); CX.ellipse(22*s,-14*s,3*s,1.5*s,0,0,Math.PI*2); CX.fill();
+    // Фонтан
+    if(Math.sin(t)>0.6){
+      CX.strokeStyle='rgba(180,230,255,0.7)'; CX.lineWidth=2*s;
+      for(let fi=0;fi<4;fi++){
+        const fx=(fi-1.5)*4*s;
+        CX.beginPath(); CX.moveTo(22*s+fx,-15*s); CX.bezierCurveTo(21*s+fx,-24*s,24*s+fx*1.5,-32*s,22*s+fx*2,-26*s); CX.stroke();
+      }
     }
   }
   else if(a.type==='shark'){
-    const bob = Math.sin(a.phase)*3*s;
-    CX.translate(0, bob);
-    CX.fillStyle='#607080';
-    CX.beginPath(); CX.moveTo(30*s,0); CX.lineTo(-20*s,-6*s); CX.lineTo(-30*s,0); CX.lineTo(-20*s,6*s); CX.closePath(); CX.fill();
-    // плавник
-    CX.beginPath(); CX.moveTo(5*s,-6*s); CX.lineTo(10*s,-18*s); CX.lineTo(16*s,-6*s); CX.closePath(); CX.fill();
-    CX.fillStyle='#e0e5ea'; // брюхо
-    CX.beginPath(); CX.ellipse(5*s,3*s,16*s,4*s,0,0,Math.PI*2); CX.fill();
+    const bob=Math.sin(t)*3*s, bodyWave=Math.sin(t*0.6)*0.08;
+    CX.translate(0,bob);
+    CX.save(); CX.rotate(bodyWave);
+    // Тело
+    const bG=CX.createLinearGradient(0,-10*s,0,10*s);
+    bG.addColorStop(0,'#4a6070'); bG.addColorStop(0.6,'#607888'); bG.addColorStop(1,'#384858');
+    CX.fillStyle=bG;
+    CX.beginPath(); CX.moveTo(34*s,0); CX.bezierCurveTo(34*s,-8*s,16*s,-10*s,-12*s,-7*s);
+    CX.bezierCurveTo(-26*s,-4*s,-32*s,0,-30*s,4*s);
+    CX.bezierCurveTo(-26*s,8*s,-12*s,9*s,16*s,7*s);
+    CX.bezierCurveTo(28*s,7*s,34*s,6*s,34*s,0); CX.closePath(); CX.fill();
+    // Хвост
+    CX.fillStyle='#384858';
+    CX.beginPath(); CX.moveTo(-30*s,0); CX.bezierCurveTo(-36*s,-8*s,-44*s,-10*s,-42*s,-4*s);
+    CX.bezierCurveTo(-40*s,0,-36*s,2*s,-30*s,2*s); CX.closePath(); CX.fill();
+    CX.beginPath(); CX.moveTo(-30*s,2*s); CX.bezierCurveTo(-36*s,8*s,-44*s,10*s,-42*s,4*s);
+    CX.bezierCurveTo(-40*s,0,-36*s,-2*s,-30*s,-2*s); CX.closePath(); CX.fill();
+    // Брюхо
+    CX.fillStyle='rgba(220,228,232,0.8)';
+    CX.beginPath(); CX.ellipse(5*s,4*s,20*s,6*s,0.05,0,Math.PI*2); CX.fill();
+    // Боковая линия
+    CX.strokeStyle='rgba(80,110,130,0.5)'; CX.lineWidth=1*s;
+    CX.beginPath(); CX.moveTo(30*s,-1*s); CX.bezierCurveTo(0,-2*s,-20*s,-1*s,-30*s,2*s); CX.stroke();
+    // Спинной плавник
+    CX.fillStyle='#384858';
+    CX.beginPath(); CX.moveTo(6*s,-10*s); CX.bezierCurveTo(8*s,-26*s,16*s,-28*s,18*s,-10*s); CX.closePath(); CX.fill();
+    // Малый спинной
+    CX.beginPath(); CX.moveTo(-16*s,-7*s); CX.bezierCurveTo(-14*s,-14*s,-10*s,-14*s,-8*s,-7*s); CX.closePath(); CX.fill();
+    // Грудные плавники
+    CX.fillStyle='#3a5060';
+    CX.beginPath(); CX.moveTo(10*s,7*s); CX.bezierCurveTo(4*s,14*s,-6*s,18*s,-12*s,13*s);
+    CX.bezierCurveTo(-8*s,8*s,4*s,7*s,10*s,7*s); CX.closePath(); CX.fill();
+    // Голова и морда
+    CX.fillStyle='#506070';
+    CX.beginPath(); CX.moveTo(22*s,-6*s); CX.bezierCurveTo(30*s,-6*s,36*s,-2*s,36*s,2*s);
+    CX.bezierCurveTo(36*s,6*s,30*s,8*s,22*s,8*s); CX.closePath(); CX.fill();
+    // Ноздри
+    CX.fillStyle='#1a2a38';
+    CX.beginPath(); CX.ellipse(33*s,-1*s,1.5*s,0.8*s,0.3,0,Math.PI*2); CX.fill();
+    // Глаз
+    CX.fillStyle='#0a0f14'; CX.beginPath(); CX.arc(26*s,-3*s,3*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(40,80,120,0.5)'; CX.beginPath(); CX.arc(26*s,-3*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(200,220,240,0.4)'; CX.beginPath(); CX.arc(27*s,-4*s,0.8*s,0,Math.PI*2); CX.fill();
+    // Зубы
+    CX.fillStyle='#dde8ee';
+    for(let zi=0;zi<6;zi++){
+      CX.beginPath(); CX.moveTo((22+zi*2.5)*s,7*s); CX.lineTo((23+zi*2.5)*s,10*s); CX.lineTo((24+zi*2.5)*s,7*s); CX.closePath(); CX.fill();
+    }
+    CX.restore();
   }
   else if(a.type==='dolphin'){
-    const bob = Math.sin(a.phase)*5*s;
-    CX.translate(0, bob);
-    CX.fillStyle='#4a7fa5';
-    CX.beginPath(); CX.ellipse(0,0,20*s,8*s,-0.2,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.moveTo(-20*s,0); CX.lineTo(-28*s,-7*s); CX.lineTo(-26*s,5*s); CX.closePath(); CX.fill();
-    // плавник
-    CX.beginPath(); CX.moveTo(2*s,-8*s); CX.lineTo(7*s,-16*s); CX.lineTo(12*s,-8*s); CX.closePath(); CX.fill();
-    CX.fillStyle='#c8dde8';
-    CX.beginPath(); CX.ellipse(4*s,3*s,10*s,4*s,0,0,Math.PI*2); CX.fill();
+    const bob=Math.sin(t)*6*s, arch=Math.sin(t*0.8)*0.15;
+    CX.translate(0,bob);
+    CX.save(); CX.rotate(arch);
+    const bG=CX.createLinearGradient(0,-8*s,0,8*s);
+    bG.addColorStop(0,'#2a6090'); bG.addColorStop(0.6,'#3a80b0'); bG.addColorStop(1,'#1a4070');
+    CX.fillStyle=bG;
+    CX.beginPath(); CX.moveTo(24*s,0); CX.bezierCurveTo(24*s,-7*s,8*s,-9*s,-12*s,-6*s);
+    CX.bezierCurveTo(-22*s,-3*s,-26*s,0,-24*s,3*s);
+    CX.bezierCurveTo(-20*s,7*s,8*s,8*s,24*s,0); CX.closePath(); CX.fill();
+    // Хвост
+    CX.fillStyle='#1a4070';
+    CX.beginPath(); CX.moveTo(-24*s,0); CX.bezierCurveTo(-28*s,-7*s,-36*s,-8*s,-34*s,-3*s);
+    CX.bezierCurveTo(-32*s,0,-28*s,2*s,-24*s,2*s); CX.closePath(); CX.fill();
+    CX.beginPath(); CX.moveTo(-24*s,0); CX.bezierCurveTo(-28*s,7*s,-36*s,8*s,-34*s,3*s);
+    CX.bezierCurveTo(-32*s,0,-28*s,-2*s,-24*s,-2*s); CX.closePath(); CX.fill();
+    // Брюхо
+    CX.fillStyle='rgba(220,235,248,0.8)';
+    CX.beginPath(); CX.ellipse(4*s,3*s,15*s,5*s,0.05,0,Math.PI*2); CX.fill();
+    // Спинной плавник
+    CX.fillStyle='#1a4070';
+    CX.beginPath(); CX.moveTo(4*s,-9*s); CX.bezierCurveTo(6*s,-18*s,12*s,-18*s,12*s,-9*s); CX.closePath(); CX.fill();
+    // Грудной плавник
+    CX.fillStyle='#2a5080';
+    CX.beginPath(); CX.moveTo(8*s,5*s); CX.bezierCurveTo(2*s,12*s,-8*s,14*s,-12*s,9*s);
+    CX.bezierCurveTo(-8*s,5*s,2*s,4*s,8*s,5*s); CX.closePath(); CX.fill();
+    // Морда
+    CX.fillStyle='#3070a0';
+    CX.beginPath(); CX.moveTo(18*s,-5*s); CX.bezierCurveTo(24*s,-5*s,28*s,-1*s,28*s,2*s);
+    CX.bezierCurveTo(28*s,5*s,24*s,7*s,18*s,6*s); CX.closePath(); CX.fill();
+    // Клюв-рострум
+    CX.fillStyle='#4080b0';
+    CX.beginPath(); CX.moveTo(24*s,0); CX.bezierCurveTo(28*s,-2*s,36*s,-1*s,36*s,1*s);
+    CX.bezierCurveTo(36*s,3*s,28*s,3*s,24*s,2*s); CX.closePath(); CX.fill();
+    // Улыбка
+    CX.strokeStyle='#0a2040'; CX.lineWidth=1.5*s;
+    CX.beginPath(); CX.moveTo(26*s,2*s); CX.bezierCurveTo(28*s,5*s,32*s,5*s,34*s,2*s); CX.stroke();
+    // Глаз
+    CX.fillStyle='#0a1820'; CX.beginPath(); CX.arc(22*s,-2*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.6)'; CX.beginPath(); CX.arc(23*s,-3*s,0.8*s,0,Math.PI*2); CX.fill();
+    // Полоска
+    CX.fillStyle='rgba(30,60,100,0.4)';
+    CX.beginPath(); CX.moveTo(18*s,-7*s); CX.bezierCurveTo(8*s,-6*s,-2*s,-5*s,-14*s,-4*s);
+    CX.bezierCurveTo(-14*s,-2*s,-2*s,-3*s,8*s,-4*s); CX.bezierCurveTo(18*s,-5*s,18*s,-5*s,18*s,-7*s); CX.closePath(); CX.fill();
+    CX.restore();
   }
   else if(a.type==='polarbear'){
-    const step = Math.sin(a.phase)*3*s;
-    CX.fillStyle='#f0efe8';
-    CX.beginPath(); CX.ellipse(0,-5*s,16*s,9*s,0,0,Math.PI*2); CX.fill(); // тело
-    CX.beginPath(); CX.arc(16*s,-9*s,7*s,0,Math.PI*2); CX.fill(); // голова
-    CX.fillStyle='#d8d7d0';
-    CX.beginPath(); CX.arc(21*s,-7*s,3*s,0,Math.PI*2); CX.fill(); // нос
-    // уши
-    CX.fillStyle='#f0efe8';
-    CX.beginPath(); CX.arc(14*s,-15*s,3*s,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.arc(19*s,-15*s,3*s,0,Math.PI*2); CX.fill();
-    // ноги
-    CX.fillStyle='#e8e7e0';
-    [-8,-2].forEach((lx,i)=>CX.fillRect(lx*s,4*s,6*s,(10+(i===0?step:-step))*s));
+    const walk=Math.sin(t)*0.2;
+    // Тень
+    CX.fillStyle='rgba(0,0,80,0.15)'; CX.beginPath(); CX.ellipse(0,16*s,18*s,3*s,0,0,Math.PI*2); CX.fill();
+    // Задние ноги
+    CX.fillStyle='#e8e4d8';
+    [-12,-5].forEach((lx,i)=>{
+      CX.save(); CX.translate(lx*s,4*s); CX.rotate(i===0?-walk:walk);
+      CX.beginPath(); CX.ellipse(0,5*s,4.5*s,6*s,0,0,Math.PI*2); CX.fill();
+      CX.save(); CX.translate(0,8*s); CX.rotate(i===0?walk:-walk);
+      CX.beginPath(); CX.ellipse(0,3.5*s,3.5*s,5*s,0,0,Math.PI*2); CX.fill();
+      // Лапа
+      CX.fillStyle='#d0ccbc';
+      CX.beginPath(); CX.ellipse(-1*s,8*s,5*s,2.5*s,0.1,0,Math.PI*2); CX.fill();
+      // Когти
+      CX.fillStyle='#8a7a60';
+      [-3,0,3].forEach(cx2=>{CX.beginPath();CX.moveTo(cx2*s,9*s);CX.lineTo((cx2-0.5)*s,12*s);CX.lineTo((cx2+0.5)*s,12*s);CX.closePath();CX.fill();});
+      CX.restore(); CX.restore();
+    });
+    // Тело
+    const bodyG=CX.createRadialGradient(-2*s,-4*s,2*s,-2*s,-4*s,18*s);
+    bodyG.addColorStop(0,'#faf8f0'); bodyG.addColorStop(0.6,'#e8e4d4'); bodyG.addColorStop(1,'#d4cebe');
+    CX.fillStyle=bodyG;
+    CX.beginPath(); CX.ellipse(-2*s,-4*s,18*s,11*s,0,0,Math.PI*2); CX.fill();
+    // Подшёрсток текстура
+    CX.strokeStyle='rgba(200,195,180,0.3)'; CX.lineWidth=0.8*s;
+    for(let fi=0;fi<8;fi++){
+      const fa=fi/8*Math.PI*2;
+      CX.beginPath(); CX.moveTo(-2*s+Math.cos(fa)*6*s,-4*s+Math.sin(fa)*5*s);
+      CX.lineTo(-2*s+Math.cos(fa)*15*s,-4*s+Math.sin(fa)*8*s); CX.stroke();
+    }
+    // Передние ноги
+    [4,11].forEach((lx,i)=>{
+      CX.fillStyle='#e4e0d0';
+      CX.save(); CX.translate(lx*s,1*s); CX.rotate(i===0?walk:-walk);
+      CX.beginPath(); CX.ellipse(0,5*s,4*s,6*s,0,0,Math.PI*2); CX.fill();
+      CX.save(); CX.translate(0,8*s); CX.rotate(i===0?-walk:walk);
+      CX.beginPath(); CX.ellipse(0,3*s,3*s,4.5*s,0,0,Math.PI*2); CX.fill();
+      CX.fillStyle='#d0ccbc';
+      CX.beginPath(); CX.ellipse(-1*s,7*s,4.5*s,2.5*s,0.1,0,Math.PI*2); CX.fill();
+      CX.fillStyle='#8a7a60';
+      [-3,0,3].forEach(cx2=>{CX.beginPath();CX.moveTo(cx2*s,8*s);CX.lineTo((cx2-0.5)*s,11*s);CX.lineTo((cx2+0.5)*s,11*s);CX.closePath();CX.fill();});
+      CX.restore(); CX.restore();
+    });
+    // Шея
+    CX.fillStyle='#ede9d8';
+    CX.beginPath(); CX.ellipse(12*s,-10*s,5*s,7*s,-0.2,0,Math.PI*2); CX.fill();
+    // Голова
+    const headG=CX.createRadialGradient(16*s,-16*s,2*s,16*s,-16*s,9*s);
+    headG.addColorStop(0,'#faf8f0'); headG.addColorStop(1,'#dedad0');
+    CX.fillStyle=headG;
+    CX.beginPath(); CX.ellipse(16*s,-16*s,9*s,8*s,0.15,0,Math.PI*2); CX.fill();
+    // Уши круглые
+    CX.fillStyle='#e4e0d0';
+    CX.beginPath(); CX.arc(10*s,-22*s,4*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(16*s,-23*s,4*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,220,200,0.4)';
+    CX.beginPath(); CX.arc(10*s,-22*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(16*s,-23*s,2.5*s,0,Math.PI*2); CX.fill();
+    // Морда тёмная
+    CX.fillStyle='#2a1a10';
+    CX.beginPath(); CX.ellipse(23*s,-14*s,3.5*s,3*s,0.2,0,Math.PI*2); CX.fill();
+    // Нос
+    CX.fillStyle='#1a1010';
+    CX.beginPath(); CX.ellipse(23*s,-14*s,2.5*s,2*s,0.2,0,Math.PI*2); CX.fill();
+    // Ноздри
+    CX.fillStyle='#0a0808'; CX.beginPath(); CX.arc(22*s,-13*s,0.7*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(24*s,-13*s,0.7*s,0,Math.PI*2); CX.fill();
+    // Глаза
+    CX.fillStyle='#0a0a08'; CX.beginPath(); CX.arc(19*s,-18*s,2*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.6)'; CX.beginPath(); CX.arc(20*s,-19*s,0.7*s,0,Math.PI*2); CX.fill();
+    // Рот
+    CX.strokeStyle='#1a1010'; CX.lineWidth=1.2*s;
+    CX.beginPath(); CX.moveTo(20*s,-12*s); CX.bezierCurveTo(22*s,-10*s,26*s,-10*s,26*s,-12*s); CX.stroke();
   }
   else if(a.type==='penguin'){
-    const bob = Math.sin(a.phase)*1*s;
-    CX.translate(0, bob);
-    CX.fillStyle='#1a1a1a';
-    CX.beginPath(); CX.ellipse(0,-5*s,7*s,11*s,0,0,Math.PI*2); CX.fill();
-    CX.fillStyle='#f5f5f5'; // брюхо
-    CX.beginPath(); CX.ellipse(0,-4*s,4*s,7*s,0,0,Math.PI*2); CX.fill();
-    CX.fillStyle='#ff8c00'; // клюв
-    CX.beginPath(); CX.arc(0,-14*s,5*s,0,Math.PI*2); CX.fill(); // голова
-    CX.fillStyle='#1a1a1a'; CX.beginPath(); CX.arc(0,-14*s,5*s,0,Math.PI*2); CX.fill();
-    CX.fillStyle='#f5f5f5'; CX.beginPath(); CX.arc(1*s,-14*s,3*s,0,Math.PI*2); CX.fill();
-    CX.fillStyle='#ff8c00';
-    CX.beginPath(); CX.moveTo(5*s,-14*s); CX.lineTo(9*s,-12*s); CX.lineTo(5*s,-11*s); CX.closePath(); CX.fill();
-    // крылья
-    CX.fillStyle='#1a1a1a';
-    CX.beginPath(); CX.ellipse(-9*s,-6*s,3*s,7*s,0.3,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.ellipse(9*s,-6*s,3*s,7*s,-0.3,0,Math.PI*2); CX.fill();
-    // лапы
-    CX.fillStyle='#ff8c00';
-    CX.fillRect(-4*s,6*s,3*s,4*s); CX.fillRect(1*s,6*s,3*s,4*s);
+    const bob=Math.sin(t)*1.5*s, walk=Math.sin(t)*0.12;
+    CX.translate(0,bob);
+    // Тень
+    CX.fillStyle='rgba(0,0,60,0.15)'; CX.beginPath(); CX.ellipse(0,14*s,7*s,2*s,0,0,Math.PI*2); CX.fill();
+    // Лапы
+    CX.fillStyle='#e85a00';
+    CX.save(); CX.translate(-3*s,11*s); CX.rotate(walk);
+    CX.beginPath(); CX.ellipse(0,2*s,4.5*s,2*s,0.2,0,Math.PI*2); CX.fill();
+    CX.restore();
+    CX.save(); CX.translate(3*s,11*s); CX.rotate(-walk);
+    CX.fillStyle='#e85a00';
+    CX.beginPath(); CX.ellipse(0,2*s,4.5*s,2*s,-0.2,0,Math.PI*2); CX.fill();
+    CX.restore();
+    // Тело — чёрная спина
+    CX.fillStyle='#141414';
+    CX.beginPath(); CX.ellipse(0,2*s,7*s,11*s,0,0,Math.PI*2); CX.fill();
+    // Белое брюхо
+    const bellyG=CX.createRadialGradient(0,3*s,1*s,0,3*s,6*s);
+    bellyG.addColorStop(0,'#f5f5f0'); bellyG.addColorStop(1,'#d8d8d0');
+    CX.fillStyle=bellyG;
+    CX.beginPath(); CX.ellipse(0,3*s,4.5*s,8*s,0,0,Math.PI*2); CX.fill();
+    // Крылья-ласты
+    CX.fillStyle='#0e0e0e';
+    CX.beginPath(); CX.ellipse(-8*s,2*s,3*s,7.5*s,0.25,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.ellipse(8*s,2*s,3*s,7.5*s,-0.25,0,Math.PI*2); CX.fill();
+    // Голова
+    CX.fillStyle='#141414';
+    CX.beginPath(); CX.arc(0,-10*s,7.5*s,0,Math.PI*2); CX.fill();
+    // Белые пятна у глаз
+    CX.fillStyle='#e8e8e0';
+    CX.beginPath(); CX.ellipse(-3.5*s,-10*s,3*s,3.5*s,0.2,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.ellipse(3.5*s,-10*s,3*s,3.5*s,-0.2,0,Math.PI*2); CX.fill();
+    // Глаза
+    CX.fillStyle='#0a0a0a'; CX.beginPath(); CX.arc(-3.5*s,-10*s,2*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(3.5*s,-10*s,2*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.7)'; CX.beginPath(); CX.arc(-2.8*s,-10.8*s,0.7*s,0,Math.PI*2); CX.fill();
+    CX.beginPath(); CX.arc(4.2*s,-10.8*s,0.7*s,0,Math.PI*2); CX.fill();
+    // Клюв
+    CX.fillStyle='#e86000';
+    CX.beginPath(); CX.moveTo(-2.5*s,-7*s); CX.bezierCurveTo(-3*s,-5*s,3*s,-5*s,2.5*s,-7*s); CX.closePath(); CX.fill();
+    CX.fillStyle='#cc4a00';
+    CX.beginPath(); CX.moveTo(-2*s,-7.5*s); CX.lineTo(0,-6*s); CX.lineTo(2*s,-7.5*s); CX.closePath(); CX.fill();
+    // Жёлтая полоска на голове (золотой пингвин)
+    CX.fillStyle='rgba(255,200,0,0.6)';
+    CX.beginPath(); CX.ellipse(0,-15*s,2*s,4*s,0,0,Math.PI*2); CX.fill();
   }
   else if(a.type==='seal'){
-    const bob = Math.sin(a.phase)*2*s;
-    CX.translate(0, bob);
-    CX.fillStyle='#8a7a6a';
-    CX.beginPath(); CX.ellipse(0,0,18*s,8*s,0.15,0,Math.PI*2); CX.fill();
-    CX.beginPath(); CX.arc(18*s,-2*s,6*s,0,Math.PI*2); CX.fill(); // голова
-    CX.fillStyle='#6a5a4a';
-    CX.beginPath(); CX.moveTo(-18*s,0); CX.lineTo(-26*s,-5*s); CX.lineTo(-22*s,5*s); CX.closePath(); CX.fill(); // хвост
-    CX.fillStyle='#c8b8a8';
-    CX.beginPath(); CX.arc(20*s,-1*s,2*s,0,Math.PI*2); CX.fill(); // нос
-    // усы
-    CX.strokeStyle='rgba(200,200,200,0.8)'; CX.lineWidth=1;
-    [-2,0,2].forEach(dy=>{CX.beginPath();CX.moveTo(22*s,(dy-1)*s);CX.lineTo(30*s,dy*s);CX.stroke();});
+    const bob=Math.sin(t)*2.5*s, flex=Math.sin(t*0.7)*0.12;
+    CX.translate(0,bob);
+    // Тень
+    CX.fillStyle='rgba(0,0,60,0.15)'; CX.beginPath(); CX.ellipse(-2*s,10*s,20*s,3*s,0,0,Math.PI*2); CX.fill();
+    // Хвост-ласты
+    CX.fillStyle='#6a7870';
+    CX.save(); CX.translate(-20*s,0); CX.rotate(flex);
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(-4*s,-8*s,-12*s,-8*s,-14*s,-2*s);
+    CX.bezierCurveTo(-12*s,2*s,-4*s,2*s,0,2*s); CX.closePath(); CX.fill();
+    CX.beginPath(); CX.moveTo(0,0); CX.bezierCurveTo(-4*s,8*s,-12*s,8*s,-14*s,2*s);
+    CX.bezierCurveTo(-12*s,-2*s,-4*s,-2*s,0,-2*s); CX.closePath(); CX.fill();
+    CX.restore();
+    // Тело
+    const bodyG=CX.createRadialGradient(-2*s,0,2*s,-2*s,0,20*s);
+    bodyG.addColorStop(0,'#9aa090'); bodyG.addColorStop(0.5,'#788078'); bodyG.addColorStop(1,'#505850');
+    CX.fillStyle=bodyG;
+    CX.beginPath(); CX.ellipse(-2*s,0,20*s,9*s,0.05,0,Math.PI*2); CX.fill();
+    // Пятна
+    CX.fillStyle='rgba(40,50,40,0.2)';
+    [[-8,-3],[0,4],[4,-5],[-14,2],[8,3]].forEach(([px,py])=>{
+      CX.beginPath(); CX.ellipse(px*s,py*s,2.5*s,1.5*s,Math.random(),0,Math.PI*2); CX.fill();
+    });
+    // Брюхо
+    CX.fillStyle='rgba(180,185,175,0.55)';
+    CX.beginPath(); CX.ellipse(-2*s,4*s,14*s,6*s,0,0,Math.PI*2); CX.fill();
+    // Ласты передние
+    CX.fillStyle='#688068';
+    CX.beginPath(); CX.moveTo(8*s,4*s); CX.bezierCurveTo(6*s,10*s,-2*s,14*s,-6*s,10*s);
+    CX.bezierCurveTo(-4*s,5*s,4*s,4*s,8*s,4*s); CX.closePath(); CX.fill();
+    // Голова
+    const headG=CX.createRadialGradient(18*s,-2*s,2*s,18*s,-2*s,8*s);
+    headG.addColorStop(0,'#8a9888'); headG.addColorStop(1,'#607060');
+    CX.fillStyle=headG;
+    CX.beginPath(); CX.ellipse(18*s,-2*s,8*s,7*s,0.1,0,Math.PI*2); CX.fill();
+    // Морда
+    CX.fillStyle='#788878';
+    CX.beginPath(); CX.ellipse(24*s,-1*s,4*s,3*s,0.1,0,Math.PI*2); CX.fill();
+    // Нос
+    CX.fillStyle='#2a1a18'; CX.beginPath(); CX.ellipse(26*s,-1*s,2*s,1.5*s,0.1,0,Math.PI*2); CX.fill();
+    // Усы
+    CX.strokeStyle='rgba(230,225,215,0.9)'; CX.lineWidth=0.9*s;
+    for(let wi=0;wi<6;wi++){
+      const wy=(-2+wi*0.7)*s, wd=wi<3?1:-1;
+      CX.beginPath(); CX.moveTo(27*s,wy); CX.bezierCurveTo(30*s,wy-wd*s,34*s,wy-wd*0.5*s,36*s,wy+wd*s); CX.stroke();
+    }
+    // Глаза большие
+    CX.fillStyle='#0a0a08'; CX.beginPath(); CX.arc(20*s,-5*s,3*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(60,80,60,0.5)'; CX.beginPath(); CX.arc(20*s,-5*s,2.5*s,0,Math.PI*2); CX.fill();
+    CX.fillStyle='rgba(255,255,255,0.7)'; CX.beginPath(); CX.arc(21*s,-6*s,1*s,0,Math.PI*2); CX.fill();
+    // Ухо-дырка
+    CX.fillStyle='#404840'; CX.beginPath(); CX.arc(16*s,-8*s,1.5*s,0,Math.PI*2); CX.fill();
   }
 
   CX.globalAlpha=1;
@@ -2074,6 +2536,15 @@ function startUpgradeAnim(cv, b){
   anim();
 }
 
+function setDiff(n){
+  diffLevel = n;
+  for(let i=1;i<=5;i++){
+    const b=document.getElementById('diff-'+i);
+    if(b) b.classList.toggle('active', i===n);
+  }
+  recalcPhysics(); // применяем сразу
+}
+
 // ══════════════════════════════════════════
 function buildSelector(){
   const grid=document.getElementById('sel-grid');
@@ -2507,6 +2978,7 @@ function loop(ts){
 resize();
 buildSelector();
 initWorld();
+setDiff(2); // начальный уровень — средний
 loop(); // ← запускаем цикл сразу
 </script>
 </body>
